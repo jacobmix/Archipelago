@@ -317,13 +317,13 @@ jobs:
           echo "🔗 Using changelog link: $changelog"
           echo
 
-          # Commit count since previous tag
+          # 🧩 Determine commits since last relevant release (exclude old commits)
           if [[ -n "$prev_tag" ]]; then
-              total_commits=$(git rev-list --count "${prev_tag}..HEAD")
-              commit_list=$(git log "${prev_tag}..HEAD" --pretty=format:"- %s (%h)" -n 200)
+            commit_list=$(git log HEAD --not "$prev_tag" --pretty=format:"- %s (%h)" -n 200)
+            total_commits=$(git rev-list HEAD --not "$prev_tag" --count)
           else
-              total_commits=$(git rev-list --count HEAD)
-              commit_list=$(git log HEAD --pretty=format:"- %s (%h)" -n 200)
+            commit_list=$(git log HEAD --pretty=format:"- %s (%h)" -n 200)
+            total_commits=$(git rev-list HEAD --count)
           fi
 
           if [[ $total_commits -eq 0 ]]; then
