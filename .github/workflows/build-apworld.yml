@@ -291,48 +291,47 @@ jobs:
 
           git fetch --tags
 
-          echo "🔍 Determining previous relevant tag for changelog..."
-          echo "📜 All recent tags (descending):"
+          echo "🔍 All recent tags (descending):"
           git tag --sort=-v:refname | head -n 10 || true
           echo
 
-          # Find the most recent *relevant* tag depending on branch type
+          # Determine previous relevant tag
           if [[ "$branch" == "main" ]]; then
-            # For stable: compare against previous stable (no "-pre")
-            prev_tag=$(git tag --sort=-v:refname | grep -v -- '-pre' | sed -n '2p' || true)
+              # previous stable release (ignore -pre)
+              prev_tag=$(git tag --sort=-v:refname | grep -v -- '-pre' | grep -v "^$new_tag\$" | head -n 1)
           else
-            # For pre-release: compare against previous tag (any type)
-            prev_tag=$(git tag --sort=-v:refname | sed -n '2p' || true)
+              # previous tag of any type for pre-release
+              prev_tag=$(git tag --sort=-v:refname | grep -v "^$new_tag\$" | head -n 1)
           fi
 
           # Fallback: if none found, show full commit history
           if [[ -z "$prev_tag" ]]; then
-            echo "⚠️ No previous relevant tag found — showing full history."
-            changelog="${repo_url}/commits/${branch}"
+              echo "⚠️ No previous relevant tag found — showing full history"
+              changelog="${repo_url}/commits/${branch}"
           else
-            changelog="${repo_url}/compare/${prev_tag}...${new_tag}"
+              changelog="${repo_url}/compare/${prev_tag}...${new_tag}"
           fi
 
           echo "Previous tag: ${prev_tag:-<none>}"
-          echo "Current tag (to be created): ${new_tag}"
-          echo "🔍 Using changelog link: $changelog"
+          echo "New tag: ${new_tag}"
+          echo "🔗 Using changelog link: $changelog"
+          echo
 
-          # 🧩 Determine commits since last relevant release
+          # Commit count since previous tag
           if [[ -n "$prev_tag" ]]; then
-            total_commits=$(git rev-list --count "${prev_tag}..HEAD")
+              total_commits=$(git rev-list --count "${prev_tag}..HEAD")
+              commit_list=$(git log "${prev_tag}..HEAD" --pretty=format:"- %s (%h)" -n 200)
           else
-            total_commits=$(git rev-list --count HEAD)
+              total_commits=$(git rev-list --count HEAD)
+              commit_list=$(git log HEAD --pretty=format:"- %s (%h)" -n 200)
           fi
 
-          if [[ "$total_commits" -eq 0 ]]; then
-            echo "🟡 No new commits since last release. Updating tag only."
-            commit_list="- (no new commits since last relevant release)"
-          else
-            commit_list=$(git log "${prev_tag}..HEAD" --pretty=format:"- %s (%h)" -n 200)
-            if [[ $total_commits -gt 200 ]]; then
+          if [[ $total_commits -eq 0 ]]; then
+              commit_list="- (no new commits since last relevant release)"
+              echo "🟡 No new commits since last release"
+          elif [[ $total_commits -gt 200 ]]; then
               extra_commits=$((total_commits - 200))
               commit_list="${commit_list}\n- ...and ${extra_commits} more commits."
-            fi
           fi
 
           cat <<EOF > release_notes.md
