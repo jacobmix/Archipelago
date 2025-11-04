@@ -296,20 +296,10 @@ jobs:
           # Find the most recent *relevant* tag depending on branch type
           if [[ "$branch" == "main" ]]; then
             # For stable: compare against last stable (no "-pre")
-            prev_tag=$(git tag --sort=-v:refname | grep -v -- '-pre' | sed -n '2p' || true)
+            prev_tag=$(git tag --sort=-v:refname | grep -v -- '-pre' | head -n 1 || true)
           else
-            # For pre-release: compare against the most recent tag (pre or stable) BEFORE this one
-            all_tags=($(git tag --sort=-v:refname))
-            prev_tag=""
-            for tag in "${all_tags[@]}"; do
-              if [[ "$tag" == "$new_tag" ]]; then
-                break
-              fi
-              if [[ -z "$prev_tag" ]]; then
-                prev_tag="$tag"
-                break
-              fi
-            done
+            # For pre-release: compare against the most recent tag (any type)
+            prev_tag=$(git tag --sort=-v:refname | head -n 1 || true)
           fi
 
           # Fallback: if none found, show full commit history
@@ -321,11 +311,10 @@ jobs:
           fi
 
           echo "Previous tag: ${prev_tag:-<none>}"
-          echo "Current tag:  ${new_tag}"
-
+          echo "Current tag (to be created): ${new_tag}"
           echo "🔍 Using changelog link: $changelog"
 
-          # 🧩 Check for new commits between tags
+          # 🧩 Determine commits since last relevant release
           if [[ -n "$prev_tag" ]]; then
             total_commits=$(git rev-list --count "${prev_tag}..HEAD")
           else
