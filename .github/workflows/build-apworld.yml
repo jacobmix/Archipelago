@@ -279,53 +279,61 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "branch=$branch" >> $GITHUB_OUTPUT
 
-      - name: Create release notes
-        id: notes
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            rac3.apworld
+            RaC3.yaml
+          tag_name: v${{ steps.semver.outputs.version }}
+          name: "RaC3 APWorld v${{ steps.semver.outputs.version }}"
+          body: "Generating release notes..."
+          prerelease: ${{ contains(steps.semver.outputs.version, '-pre') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate release notes
         shell: bash
         run: |
           set -e
           repo_url="https://github.com/${{ github.repository }}"
           branch="${{ steps.semver.outputs.branch }}"
           new_tag="v${{ steps.semver.outputs.version }}"
-          short_sha=$(git rev-parse --short HEAD)
 
           git fetch --tags
 
           echo "🔍 All recent tags (descending):"
           git tag --sort=-v:refname | head -n 10 || true
-          echo
 
-          # Determine previous relevant tag
+          # Get previous tag (latest before new_tag)
           if [[ "$branch" == "main" ]]; then
-              # previous stable release (ignore -pre)
-              prev_tag=$(git tag --sort=-v:refname | grep -v -- '-pre' | grep -v "^$new_tag\$" | head -n 1)
+            # previous stable release (ignore -pre)
+            prev_tag=$(git tag --sort=-v:refname | grep -v -- '-pre' | grep -v "^$new_tag\$" | head -n 1)
           else
-              # previous tag of any type for pre-release
-              prev_tag=$(git tag --sort=-v:refname | grep -v "^$new_tag\$" | head -n 1)
+            # previous tag of any type for pre-release
+            prev_tag=$(git tag --sort=-v:refname | grep -v "^$new_tag\$" | head -n 1)
           fi
 
-          # Fallback: if none found, show full commit history
+          # Full compare link
           if [[ -z "$prev_tag" ]]; then
-              echo "⚠️ No previous relevant tag found — showing full history"
-              changelog="${repo_url}/commits/${branch}"
+            echo "⚠️ No previous relevant tag found — showing full history"
+            changelog="${repo_url}/commits/${branch}"
           else
-              changelog="${repo_url}/compare/${prev_tag}...${new_tag}"
+            changelog="${repo_url}/compare/${prev_tag}...${new_tag}"
           fi
 
           echo "Previous tag: ${prev_tag:-<none>}"
-          echo "New tag: ${new_tag}"
-          echo "🔗 Using changelog link: $changelog"
-          echo
+          echo "New tag: $new_tag"
+          echo "Changelog link: $changelog"
 
-          # 🧩 Determine commits since last relevant release (exclude old commits)
+          # Only show commits between the two tags
           if [[ -n "$prev_tag" ]]; then
-              commit_list=$(git log "${prev_tag}..HEAD" --pretty=format:"- %s (%h)" -n 200)
-              total_commits=$(git rev-list "${prev_tag}..HEAD" --count)
+            commit_list=$(git log "${prev_tag}..${new_tag}" --pretty=format:"- %s (%h)")
+            total_commits=$(git rev-list "${prev_tag}..${new_tag}" --count)
           else
-              commit_list=$(git log HEAD --pretty=format:"- %s (%h)" -n 200)
-              total_commits=$(git rev-list HEAD --count)
+            commit_list=$(git log "${new_tag}" --pretty=format:"- %s (%h)")
+            total_commits=$(git rev-list "${new_tag}" --count)
           fi
-
 
           if [[ $total_commits -eq 0 ]]; then
               commit_list="- (no new commits since last relevant release)"
@@ -337,18 +345,17 @@ jobs:
 
           cat <<EOF > release_notes.md
           ## RaC3 APWorld ${new_tag}
-
+      
           **Branch:** ${branch}  
-          **Commit:** ${short_sha}  
           **Date:** $(date -u +"%Y-%m-%d %H:%M UTC")
-
+      
           <details>
           <summary><strong>📜 Summary (${total_commits} changes since ${prev_tag:-initial commit})</strong></summary>
-
+      
           ${commit_list}
-
+      
           </details>
-
+      
           **Full changelog and compare**: ${changelog}
 
           ### Notes
@@ -360,15 +367,10 @@ jobs:
           \`/send_location <player_name> <location>\` Example: \`/send_location TaoshiRaC3 "Crash Site: Infobot: Aridia"\`
           EOF
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            rac3.apworld
-            RaC3.yaml
-          tag_name: v${{ steps.semver.outputs.version }}
-          name: "RaC3 APWorld v${{ steps.semver.outputs.version }}"
-          body_path: release_notes.md
-          prerelease: ${{ contains(steps.semver.outputs.version, '-pre') }}
+      - name: Update GitHub Release with generated notes
+        shell: bash
+        run: |
+          new_tag="v${{ steps.semver.outputs.version }}"
+          gh release edit "$new_tag" --notes-file release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
