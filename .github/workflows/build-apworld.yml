@@ -292,14 +292,17 @@ jobs:
           git fetch --tags
 
           echo "🔍 Determining previous relevant tag for changelog..."
+          echo "📜 All recent tags (descending):"
+          git tag --sort=-v:refname | head -n 10 || true
+          echo
 
           # Find the most recent *relevant* tag depending on branch type
           if [[ "$branch" == "main" ]]; then
-            # For stable: compare against last stable (no "-pre")
-            prev_tag=$(git tag --sort=-v:refname | grep -v -- '-pre' | head -n 1 || true)
+            # For stable: compare against previous stable (no "-pre")
+            prev_tag=$(git tag --sort=-v:refname | grep -v -- '-pre' | sed -n '2p' || true)
           else
-            # For pre-release: compare against the most recent tag (any type)
-            prev_tag=$(git tag --sort=-v:refname | head -n 1 || true)
+            # For pre-release: compare against previous tag (any type)
+            prev_tag=$(git tag --sort=-v:refname | sed -n '2p' || true)
           fi
 
           # Fallback: if none found, show full commit history
