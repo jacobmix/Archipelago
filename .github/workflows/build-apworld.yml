@@ -61,8 +61,8 @@ jobs:
           fi
 
           # Skip if only yml or md files changed
-          if echo "$changed_files" | grep -Eq '^(\.yml|\.md)'; then
-            non_workflow_changes=$(echo "$changed_files" | grep -Ev '^(\.yml|\.md)' || true)
+          if echo "$changed_files" | grep -Eq '\.(md|ya?ml)$'; then
+            non_workflow_changes=$(echo "$changed_files" | grep -Ev '\.(md|ya?ml)$' || true)
             if [[ -z "$non_workflow_changes" ]]; then
               echo "🟡 Only yml/md file changes detected — skipping build."
               echo "should_build=false" >> $GITHUB_OUTPUT
