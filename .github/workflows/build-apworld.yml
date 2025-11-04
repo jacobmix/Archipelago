@@ -291,20 +291,30 @@ jobs:
 
           git fetch --tags
 
-          echo "🔍 Determining previous tag for changelog..."
+          echo "🔍 Determining previous relevant tag for changelog..."
 
-          # Find the most recent relevant tag depending on branch type
+          # Find the most recent *relevant* tag depending on branch type
           if [[ "$branch" == "main" ]]; then
-            # For main: compare to latest *non-pre* tag
-            prev_tag=$(git tag --sort=-v:refname | grep -v -- '-pre' | head -n 1 || true)
+            # For stable: compare against last stable (no "-pre")
+            prev_tag=$(git tag --sort=-v:refname | grep -v -- '-pre' | sed -n '2p' || true)
           else
-            # For staging: compare to latest tag of ANY kind (pre or stable)
-            prev_tag=$(git tag --sort=-v:refname | head -n 1 || true)
+            # For pre-release: compare against the most recent tag (pre or stable) BEFORE this one
+            all_tags=($(git tag --sort=-v:refname))
+            prev_tag=""
+            for tag in "${all_tags[@]}"; do
+              if [[ "$tag" == "$new_tag" ]]; then
+                break
+              fi
+              if [[ -z "$prev_tag" ]]; then
+                prev_tag="$tag"
+                break
+              fi
+            done
           fi
-          
+
           # Fallback: if none found, show full commit history
           if [[ -z "$prev_tag" ]]; then
-            echo "⚠️ No previous ${branch} release tag found — showing full history."
+            echo "⚠️ No previous relevant tag found — showing full history."
             changelog="${repo_url}/commits/${branch}"
           else
             changelog="${repo_url}/compare/${prev_tag}...${new_tag}"
@@ -315,7 +325,7 @@ jobs:
 
           echo "🔍 Using changelog link: $changelog"
 
-          # Gather commit list (limit 200, count total)
+          # Gather commits since last relevant release (limit 200, count total)
           if [[ -n "$prev_tag" ]]; then
             total_commits=$(git rev-list --count "${prev_tag}..HEAD")
             commit_list=$(git log "${prev_tag}..HEAD" --pretty=format:"- %s (%h)" -n 200)
@@ -325,7 +335,7 @@ jobs:
           fi
 
           if [[ -z "$commit_list" ]]; then
-            commit_list="- (no new commits since last release)"
+            commit_list="- (no new commits since last relevant release)"
           fi
 
           if [[ $total_commits -gt 200 ]]; then
@@ -341,7 +351,7 @@ jobs:
           **Date:** $(date -u +"%Y-%m-%d %H:%M UTC")
 
           <details>
-          <summary><strong>📜 Summary (Last ${total_commits} Commits)</strong></summary>
+          <summary><strong>📜 Summary (${total_commits} changes since ${prev_tag:-initial commit})</strong></summary>
 
           ${commit_list}
 
