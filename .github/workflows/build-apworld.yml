@@ -258,9 +258,9 @@ jobs:
           # Replace the old file with the updated one
           mv tmp_unzip/archipelago.json.tmp tmp_unzip/archipelago.json
 
-          # Remove any nested archipelago.json files
-          find tmp_unzip -type f -name 'archipelago.json' ! -path 'tmp_unzip/archipelago.json' -exec rm {} \;
-          echo "🗑️ Removed any extra archipelago.json"
+          # Remove nested archipelago.json but keep the root one
+          find tmp_unzip/rac3 -type f -name 'archipelago.json' -exec rm {} \;
+          echo "🗑️ Removed extra archipelago.json"
 
           # Rezip the .apworld
           cd tmp_unzip
