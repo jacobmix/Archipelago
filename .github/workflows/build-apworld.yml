@@ -95,38 +95,41 @@ jobs:
         run: |
           echo "📦 Building rac3.apworld..."
           python3 - <<'EOF'
-          import sys, os
+          import sys, os, zipfile
+          sys.stdout.reconfigure(encoding='utf-8')
+      
           sys.path.insert(0, os.path.abspath("."))  # Ensure local imports work
           from worlds import Files
           from Utils import Version
-          import zipfile
-
-          class RAC3Container(Files.APWorldContainer):
+      
+          class MyWorldContainer(Files.APWorldContainer):
               def write_contents(self, opened_zipfile: zipfile.ZipFile) -> None:
-                  # Do NOT manually write archipelago.json; base class handles it
-                  # Copy all files from worlds/rac3 into rac3/ folder in zip
+                  # Write archipelago.json at root (handled by base class)
+                  super().write_contents(opened_zipfile)
+      
+                  # Include all files from world_folder inside rac3/
                   for root, dirs, files in os.walk(self.world_folder):
                       for file in files:
                           if file.endswith(".pyc"):
                               continue
                           full_path = os.path.join(root, file)
                           rel_path = os.path.relpath(full_path, self.world_folder)
-                          zip_path = os.path.join("rac3", rel_path).replace("\\", "/")
+                          zip_path = os.path.join("rac3", rel_path).replace("\\", "/")  # POSIX paths
                           opened_zipfile.write(full_path, zip_path)
-
+      
           src_folder = "worlds/rac3"
           dest_file = "rac3.apworld"
-
-          # Create container for rac3 only
-          world = RAC3Container(dest_file)
+      
+          # Create container
+          world = MyWorldContainer(dest_file)
           world.game = "RaC3"
           world.world_folder = src_folder
           world.world_version = Version(1, 0, 0)
           world.minimum_ap_version = Version(0, 5, 0)
-
-          # Write .apworld with archipelago.json at root
+      
+          # Write the .apworld
           world.write()
-          print(f"✅ Created {dest_file} with rac3/ files and archipelago.json at root")
+          print(f"Successfully created {dest_file} with all files under rac3/")
           EOF
 
       - name: Upload build artifact
@@ -255,11 +258,9 @@ jobs:
           # Replace the old file with the updated one
           mv tmp_unzip/archipelago.json.tmp tmp_unzip/archipelago.json
 
-          # Remove duplicate archipelago.json inside rac3/
-          if [ -f tmp_unzip/rac3/archipelago.json ]; then
-              rm tmp_unzip/rac3/archipelago.json
-              echo "🗑️ Removed duplicate archipelago.json from rac3/"
-          fi
+          # Remove any nested archipelago.json files
+          find tmp_unzip/rac3 -type f -name 'archipelago.json' -exec rm {} \;
+          echo "🗑️ Removed any nested archipelago.json files from rac3/"
 
           # Rezip the .apworld
           cd tmp_unzip
