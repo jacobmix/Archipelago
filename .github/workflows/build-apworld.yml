@@ -110,7 +110,7 @@ jobs:
                   # Include all files from world_folder inside rac3/
                   for root, dirs, files in os.walk(self.world_folder):
                       for file in files:
-                          if file.endswith(".pyc"):
+                          if file.endswith(".pyc") or file == "archipelago.json":
                               continue
                           full_path = os.path.join(root, file)
                           rel_path = os.path.relpath(full_path, self.world_folder)
