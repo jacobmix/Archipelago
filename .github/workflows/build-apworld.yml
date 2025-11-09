@@ -187,7 +187,7 @@ jobs:
           unzip -q rac3.apworld -d tmp_unzip
 
           # Create manifest inside extracted folder
-          cat > tmp_unzip/archipelago.json <<EOF
+          cat > tmp_unzip/rac3/archipelago.json <<EOF
           {
               "game": "Ratchet & Clank 3",
               "authors": ["${authors}"],
