@@ -180,7 +180,12 @@ jobs:
           version="${version#v}"
           version="${version%-pre}"
 
-          authors=$(git shortlog -sne | cut -f2 | cut -d'<' -f1 | paste -sd',' -)
+          # Get authors
+          git fetch origin ${{ needs.build.outputs.branch }}
+          authors=$(git log origin/${{ needs.build.outputs.branch }} --format='%aN' | sort -u | paste -sd',' -)
+          if [ -z "$authors" ]; then
+            authors="Unknown"
+          fi
           echo "Authors: ${authors}"
 
           # Work in a temp folder
