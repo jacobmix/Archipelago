@@ -93,18 +93,28 @@ jobs:
         if: steps.changes.outputs.should_build == 'true'
         shell: bash
         run: |
-          python3 - <<EOF
-          import sys
-          sys.stdout.reconfigure(encoding='utf-8')  # Fix Unicode print error
-          from worlds import Files
-      
-          # Ensure only the needed world is used
-          container = Files.APWorldContainer()
-          container.game = "rac3"
-      
-          output_path = "rac3.apworld"
-          container.write(output_path)
-          print(f"✅ Successfully wrote {output_path}")
+          echo "📦 Building rac3.apworld..."
+          python3 - <<'EOF'
+          import os, zipfile
+
+          def build_apworld(src_folder: str, dest_file: str):
+              if not os.path.isdir(src_folder):
+                  raise FileNotFoundError(f"Source folder not found: {src_folder}")
+
+              with zipfile.ZipFile(dest_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                  for root, dirs, files in os.walk(src_folder):
+                      if "__pycache__" in root:
+                          continue
+                      for file in files:
+                          if file.endswith(".pyc"):
+                              continue
+                          full_path = os.path.join(root, file)
+                          rel_path = os.path.relpath(full_path, os.path.dirname(src_folder))
+                          zipf.write(full_path, rel_path)
+
+              print(f"✅ Successfully created {dest_file} containing {src_folder}/")
+
+          build_apworld("worlds/rac3", "rac3.apworld")
           EOF
 
       - name: Upload build artifact
@@ -194,6 +204,18 @@ jobs:
           # Get authors
           git fetch origin ${{ needs.build.outputs.branch }}
           authors=$(git log --format='%aN' -- worlds/rac3 | sort -u)
+
+          # Add custom authors here. Example: ("NewContributor" "AnotherDev")
+          custom_authors=("1theory")
+
+          # Merge authors and remove duplicates
+          for a in "${custom_authors[@]}"; do
+            if ! echo "$authors" | grep -Fxq "$a"; then
+              authors="${authors}"$'\n'"${a}"
+            fi
+          done
+
+          # If no authors found at all
           if [ -z "$authors" ]; then
             authors="Unknown"
           fi
