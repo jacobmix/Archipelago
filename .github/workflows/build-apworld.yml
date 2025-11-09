@@ -240,14 +240,14 @@ jobs:
              --argjson authors "$authors_json" \
              --arg min_ap "0.6.3" \
              --arg max_ap "$ap_version" \
-             --argjson set_version "$orig_version" \
-             --argjson set_compatible "$orig_compatible" \
+             --arg set_version "$orig_version" \
+             --arg set_compatible "$orig_compatible" \
              '.world_version = $world_version
               | .authors = $authors
               | .minimum_ap_version = $min_ap
               | .maximum_ap_version = $max_ap
-              | .version = $set_version
-              | .compatible_version = $set_compatible' \
+              | .version = ($set_version | tonumber)
+              | .compatible_version = ($set_compatible | tonumber)' \
              tmp_unzip/rac3/archipelago.json > tmp_unzip/rac3/archipelago.json.tmp
 
           # Replace the old file with the updated one
