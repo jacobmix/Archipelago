@@ -193,63 +193,67 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "branch=$branch" >> $GITHUB_OUTPUT
 
-      - name: Update manifest in .apworld
+      - name: Add manifest to .apworld
         shell: bash
         run: |
-          echo "🧾 Updating archipelago.json manifest using Python..."
+          set -e
+          echo "🧾 Updating archipelago.json manifest..."
 
+          version="${{ steps.semver.outputs.version }}"
+          version="${version#v}"
+          version="${version%-pre}"
+
+          # Get authors from git history
+          git fetch origin ${{ needs.build.outputs.branch }}
+          authors=$(git log --format='%aN' -- worlds/rac3 | sort -u)
+
+          # Add custom authors. Example: ("NewContributor" "AnotherDev")
+          custom_authors=("1theory")
+          for a in "${custom_authors[@]}"; do
+            if ! echo "$authors" | grep -Fxq "$a"; then
+              authors="${authors}"$'\n'"${a}"
+            fi
+          done
+
+          # Default if no authors found
+          if [ -z "$authors" ]; then
+            authors="Unknown"
+          fi
+
+          # Convert authors to JSON array
+          authors_json=$(echo "$authors" | jq -R . | jq -s .)
+
+          # Extract AP version
+          ap_version=$(grep '^__version__ = ' Utils.py | cut -d'"' -f2)
+          echo "Maximum AP version: $ap_version"
+
+          # Unzip the built .apworld
           mkdir -p tmp_unzip
           unzip -q rac3.apworld -d tmp_unzip
 
-          python3 - <<'EOF'
-          import json
-          import os
+          # Get original version fields from source folder
+          orig_version=$(jq -r '.version' worlds/rac3/archipelago.json)
+          orig_compatible=$(jq -r '.compatible_version' worlds/rac3/archipelago.json)
 
-          # Paths
-          apworld_dir = "tmp_unzip/rac3"
-          manifest_path = os.path.join(apworld_dir, "archipelago.json")
+          # Update manifest in unpacked .apworld while preserving version fields
+          jq --arg world_version "$version" \
+             --argjson authors "$authors_json" \
+             --arg min_ap "0.6.3" \
+             --arg max_ap "$ap_version" \
+             --argjson set_version "$orig_version" \
+             --argjson set_compatible "$orig_compatible" \
+             '.world_version = $world_version
+              | .authors = $authors
+              | .minimum_ap_version = $min_ap
+              | .maximum_ap_version = $max_ap
+              | .version = $set_version
+              | .compatible_version = $set_compatible' \
+             tmp_unzip/rac3/archipelago.json > tmp_unzip/rac3/archipelago.json.tmp
 
-          # Load existing manifest
-          with open(manifest_path, "r", encoding="utf-8") as f:
-              data = json.load(f)
+          # Replace the old file with the updated one
+          mv tmp_unzip/rac3/archipelago.json.tmp tmp_unzip/rac3/archipelago.json
 
-          # Update only the fields we want
-          data["world_version"] = "${{ steps.semver.outputs.version }}".rstrip("-pre")
-          
-          # Get authors from git log
-          import subprocess
-          authors_raw = subprocess.check_output(
-              ["git", "log", "--format=%aN", "--", "worlds/rac3"],
-              encoding="utf-8"
-          ).splitlines()
-          authors = sorted(set(authors_raw + ["1theory"]))  # add custom authors
-          data["authors"] = authors
-
-          # Set AP versions
-          with open("Utils.py", "r", encoding="utf-8") as f:
-              for line in f:
-                  if line.startswith('__version__'):
-                      ap_version = line.split('"')[1]
-                      break
-              else:
-                  ap_version = "0.6.4"
-
-          data["minimum_ap_version"] = "0.6.3"
-          data["maximum_ap_version"] = ap_version
-
-          # Ensure version fields exist, preserve if already present
-          if "version" not in data:
-              data["version"] = 1
-          if "compatible_version" not in data:
-              data["compatible_version"] = 1
-
-          # Write back
-          with open(manifest_path, "w", encoding="utf-8") as f:
-              json.dump(data, f, indent=4)
-
-          EOF
-
-          # Re-zip .apworld
+          # Rezip the .apworld
           cd tmp_unzip
           zip -qr ../rac3.apworld rac3
           cd ..
