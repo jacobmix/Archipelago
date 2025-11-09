@@ -182,7 +182,7 @@ jobs:
 
           # Get authors
           git fetch origin ${{ needs.build.outputs.branch }}
-          authors=$(git log origin/${{ needs.build.outputs.branch }} --format='%aN' | sort -u | paste -sd',' -)
+          authors=$(git log --format='%aN' -- worlds/rac3 | sort -u | paste -sd',' -)
           if [ -z "$authors" ]; then
             authors="Unknown"
           fi
