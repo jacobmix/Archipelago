@@ -122,6 +122,9 @@ jobs:
           name: rac3.apworld
           path: .
 
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Determine next semantic version
         id: semver
         shell: bash
@@ -188,9 +191,47 @@ jobs:
           fi
           echo "Authors: ${authors}"
 
+          # Extract the Archipelago version from Utils.py
+          ap_version=$(grep '^__version__ = ' Utils.py | cut -d'"' -f2)
+          echo "Maximum AP version: $ap_version"
+
           # Work in a temp folder
           mkdir -p tmp_unzip
           unzip -q rac3.apworld -d tmp_unzip
+
+          # Get the latest release tag
+          latest_tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName' || true)
+          
+          if [ -n "$latest_tag" ]; then
+              echo "Latest release tag: $latest_tag"
+          
+              # Download the .apworld from that release
+              mkdir -p tmp_prev
+              gh release download "$latest_tag" -p "*.apworld" -D tmp_prev || true
+          else
+              echo "No previous release found."
+          fi
+          
+          if [ -f tmp_prev/*.apworld ]; then
+              # unzip the .apworld
+              unzip -q tmp_prev/*.apworld -d tmp_prev/unzipped
+          
+              # Check if archipelago.json exists
+              if [ -f tmp_prev/unzipped/rac3/archipelago.json ]; then
+                  old_version=$(jq -r '.version' tmp_prev/unzipped/rac3/archipelago.json)
+                  echo "Found previous world version: $old_version"
+          
+                  new_version=$((old_version + 1))
+              else
+                  echo "archipelago.json not found in previous release."
+                  new_version=1
+              fi
+          else
+              echo "No previous .apworld found."
+              new_version=1
+          fi
+          
+          echo "New world version: $new_version"
 
           # Create manifest inside extracted folder
           cat > tmp_unzip/rac3/archipelago.json <<EOF
@@ -198,7 +239,10 @@ jobs:
               "game": "Ratchet & Clank 3",
               "authors": ["${authors}"],
               "world_version": "${version}",
-              "minimum_ap_version": "0.5.0"
+              "version": ${new_version},
+              "compatible_version": ${new_version},
+              "minimum_ap_version": "0.6.3",
+              "maximum_ap_version": "${ap_version}"
           }
           EOF
 
@@ -210,6 +254,8 @@ jobs:
           cd ..
 
           echo "📦 Updated rac3.apworld with manifest successfully."
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
