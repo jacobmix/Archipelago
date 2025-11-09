@@ -73,30 +73,6 @@ jobs:
           echo "✅ Relevant changes detected — proceed with build/release."
           echo "should_build=true" >> $GITHUB_OUTPUT
 
-      - name: Generate APWorld manifest
-        if: steps.changes.outputs.should_build == 'true'
-        shell: bash
-        run: |
-          echo "🧾 Generating archipelago.json manifest..."
-
-          # Determine clean version (strip v and -pre), and get authors.
-          version="${{ steps.semver.outputs.version }}"
-          version="${version#v}"
-          version="${version%-pre}"
-          authors=$(git shortlog -sne | cut -f2 | cut -d'<' -f1 | tr '\n' ',' | sed 's/,$//')
-
-          mkdir -p worlds/rac3
-          cat > worlds/rac3/archipelago.json <<EOF
-          {
-              "game": "Ratchet & Clank 3",
-              "authors": ["${authors}"],
-              "world_version": "${version}",
-              "minimum_ap_version": "0.5.0"
-          }
-          EOF
-
-          echo "✅ Created worlds/rac3/archipelago.json with version: ${version}"
-
       - name: Run PowerShell build script
         if: steps.changes.outputs.should_build == 'true'
         shell: pwsh
@@ -192,6 +168,42 @@ jobs:
           echo "✅ Next version: $version"
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "branch=$branch" >> $GITHUB_OUTPUT
+
+      # 🆕 Inject manifest into the built .apworld before release
+      - name: Add manifest to .apworld
+        shell: bash
+        run: |
+          set -e
+          echo "🧾 Adding archipelago.json manifest to rac3.apworld..."
+
+          version="${{ steps.semver.outputs.version }}"
+          version="${version#v}"
+          version="${version%-pre}"
+
+          authors=$(git shortlog -sne | cut -f2 | cut -d'<' -f1 | paste -sd',' -)
+
+          # Work in a temp folder
+          mkdir -p tmp_unzip
+          unzip -q rac3.apworld -d tmp_unzip
+
+          # Create manifest inside extracted folder
+          cat > tmp_unzip/archipelago.json <<EOF
+          {
+              "game": "Ratchet & Clank 3",
+              "authors": ["${authors}"],
+              "world_version": "${version}",
+              "minimum_ap_version": "0.5.0"
+          }
+          EOF
+
+          echo "✅ Created archipelago.json with world_version: ${version}"
+
+          # Repackage .apworld
+          cd tmp_unzip
+          zip -qr ../rac3.apworld .
+          cd ..
+
+          echo "📦 Updated rac3.apworld with manifest successfully."
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
