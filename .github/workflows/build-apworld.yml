@@ -181,6 +181,7 @@ jobs:
           version="${version%-pre}"
 
           authors=$(git shortlog -sne | cut -f2 | cut -d'<' -f1 | paste -sd',' -)
+          echo "Authors: ${authors}"
 
           # Work in a temp folder
           mkdir -p tmp_unzip
