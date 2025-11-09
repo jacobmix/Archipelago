@@ -240,7 +240,7 @@ jobs:
 
           # Unzip the built .apworld
           mkdir -p tmp_unzip
-          unzip -q rac3.apworld -d tmp_unzip
+          unzip -o -q rac3.apworld -d tmp_unzip
 
           # Read original version fields if they exist
           orig_version=$(jq -r '.version // 1' tmp_unzip/rac3/archipelago.json)
