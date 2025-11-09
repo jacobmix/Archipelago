@@ -265,13 +265,14 @@ jobs:
 
             # Replace the old file with the updated one
             mv tmp_unzip/rac3/archipelago.json.tmp tmp_unzip/rac3/archipelago.json
-        
+
             # Rezip the .apworld
             cd tmp_unzip
             zip -qr ../rac3.apworld rac3
             cd ..
-        
+
             echo "✅ Updated archipelago.json"
+
           env:
             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
