@@ -97,35 +97,17 @@ jobs:
             --input worlds/rac3 \
             --output rac3.apworld
 
-      - name: Check for rac3.apworld locations
+      - name: Check if rac3.apworld was created
         shell: bash
         run: |
-          echo "🔍 Checking potential locations for rac3.apworld..."
-          
-          paths_to_check=(
-            "./rac3.apworld"
-            "./worlds/rac3/rac3.apworld"
-            "./worlds/rac3/**/rac3.apworld"
-            "./worlds/**/rac3.apworld"
-            "./lib/worlds/rac3.apworld"
-            "./lib/worlds/**/rac3.apworld"
-          )
-          
-          found=false
-          for path in "${paths_to_check[@]}"; do
-            echo "Checking: $path"
-            matches=$(ls $path 2>/dev/null || true)
-            if [ -n "$matches" ]; then
-              echo "✅ Found rac3.apworld at: $matches"
-              found=true
-            else
-              echo "❌ Not found at: $path"
-            fi
-          done
-
-          if [ "$found" = false ]; then
-            echo "⚠️ rac3.apworld not found in any expected location!"
-          fi
+          echo "Looking in the current directory..."
+          ls -l
+          echo "Looking in worlds..."
+          ls -l worlds
+          echo "Looking in worlds/rac3..."
+          ls -l worlds/rac3
+          echo "Looking in lib/worlds..."
+          ls -l lib/worlds || true
 
       - name: Upload build artifact
         if: steps.changes.outputs.should_build == 'true'
