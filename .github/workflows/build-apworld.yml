@@ -77,29 +77,13 @@ jobs:
           echo "✅ Relevant changes detected — proceed with build/release."
           echo "should_build=true" >> $GITHUB_OUTPUT
 
-      - name: Run PowerShell build script
+      - name: Build .apworld with Archipelago Files.py
         if: steps.changes.outputs.should_build == 'true'
-        shell: pwsh
+        shell: bash
         run: |
-          $ErrorActionPreference = "Stop"
-          $rootDir = "${{ github.workspace }}"
-          Set-Location $rootDir
-
-          $worldFolder = Join-Path $rootDir "worlds/rac3"
-          $zipPath = Join-Path $rootDir "rac3.zip"
-          $apworldPath = Join-Path $rootDir "rac3.apworld"
-
-          Write-Host "🧹 Cleaning old build artifacts..."
-          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-          if (Test-Path $apworldPath) { Remove-Item $apworldPath -Force }
-
-          Write-Host "📦 Creating zip from: $worldFolder"
-          Compress-Archive -Path $worldFolder -DestinationPath $zipPath -Force
-
-          Write-Host "🔄 Renaming rac3.zip → rac3.apworld..."
-          Rename-Item -Path $zipPath -NewName "rac3.apworld"
-
-          Write-Host "✅ Done! Output: $apworldPath"
+          python3 Worlds/Files.py build_apworld \
+            --input worlds/rac3 \
+            --output rac3.apworld
 
       - name: Upload build artifact
         if: steps.changes.outputs.should_build == 'true'
@@ -155,7 +139,6 @@ jobs:
 
           # Strip leading "v" if present
           tag_stripped="${latest_tag#v}"
-
           # Split version safely (defaults if missing)
           IFS='.' read -r major minor patch <<< "$tag_stripped"
           major=${major:-0}
@@ -176,12 +159,11 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "branch=$branch" >> $GITHUB_OUTPUT
 
-      # 🆕 Inject manifest into the built .apworld before release
       - name: Add manifest to .apworld
         shell: bash
         run: |
           set -e
-          echo "🧾 Adding archipelago.json manifest to rac3.apworld..."
+          echo "🧾 Updating archipelago.json manifest..."
 
           version="${{ steps.semver.outputs.version }}"
           version="${version#v}"
@@ -189,75 +171,37 @@ jobs:
 
           # Get authors
           git fetch origin ${{ needs.build.outputs.branch }}
-          authors=$(git log --format='%aN' -- worlds/rac3 | sort -u | paste -sd',' -)
+          authors=$(git log --format='%aN' -- worlds/rac3 | sort -u)
           if [ -z "$authors" ]; then
             authors="Unknown"
           fi
-          echo "Authors: ${authors}"
 
-          # Extract the Archipelago version from Utils.py
+          # Convert authors to JSON array
+          authors_json=$(echo "$authors" | jq -R . | jq -s .)
+
+          # Extract AP version
           ap_version=$(grep '^__version__ = ' Utils.py | cut -d'"' -f2)
           echo "Maximum AP version: $ap_version"
 
-          # Work in a temp folder
           mkdir -p tmp_unzip
           unzip -q rac3.apworld -d tmp_unzip
 
-          # Get the latest release tag
-          latest_tag=$(gh release list --limit 1 --json tagName -q '.[0].tagName' || true)
-          
-          if [ -n "$latest_tag" ]; then
-              echo "Latest release tag: $latest_tag"
-          
-              # Download the .apworld from that release
-              mkdir -p tmp_prev
-              gh release download "$latest_tag" -p "*.apworld" -D tmp_prev || true
-          else
-              echo "No previous release found."
-          fi
-          
-          if [ -f tmp_prev/*.apworld ]; then
-              # unzip the .apworld
-              unzip -q tmp_prev/*.apworld -d tmp_prev/unzipped
-          
-              # Check if archipelago.json exists
-              if [ -f tmp_prev/unzipped/rac3/archipelago.json ]; then
-                  old_version=$(jq -r '.version' tmp_prev/unzipped/rac3/archipelago.json)
-                  echo "Found previous world version: $old_version"
-          
-                  new_version=$((old_version + 1))
-              else
-                  echo "archipelago.json not found in previous release."
-                  new_version=1
-              fi
-          else
-              echo "No previous .apworld found."
-              new_version=1
-          fi
-          
-          echo "New world version: $new_version"
+          # Update archipelago.json without touching version/compatible_version
+          jq --arg world_version "$version" \
+             --argjson authors "$authors_json" \
+             --arg min_ap "0.6.3" \
+             --arg max_ap "$ap_version" \
+             '.world_version = $world_version | .authors = $authors | .minimum_ap_version = $min_ap | .maximum_ap_version = $max_ap' \
+             tmp_unzip/rac3/archipelago.json > tmp_unzip/rac3/archipelago.json.tmp
 
-          # Create manifest inside extracted folder
-          cat > tmp_unzip/rac3/archipelago.json <<EOF
-          {
-              "game": "Ratchet & Clank 3",
-              "authors": ["${authors}"],
-              "world_version": "${version}",
-              "version": ${new_version},
-              "compatible_version": ${new_version},
-              "minimum_ap_version": "0.6.3",
-              "maximum_ap_version": "${ap_version}"
-          }
-          EOF
+          mv tmp_unzip/rac3/archipelago.json.tmp tmp_unzip/rac3/archipelago.json
 
-          echo "✅ Created archipelago.json with world_version: ${version}"
-
-          # Repackage .apworld
           cd tmp_unzip
           zip -qr ../rac3.apworld .
           cd ..
 
-          echo "📦 Updated rac3.apworld with manifest successfully."
+          echo "✅ Updated archipelago.json without overriding version fields."
+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -286,7 +230,6 @@ jobs:
 
           echo "🔍 All recent tags (descending):"
           git tag --sort=-v:refname | head -n 10 || true
-
           # Get previous tag (latest before new_tag)
           if [[ "$branch" == "main" ]]; then
             # previous stable release (ignore -pre)
@@ -307,7 +250,6 @@ jobs:
           echo "Previous tag: ${prev_tag:-<none>}"
           echo "New tag: $new_tag"
           echo "Changelog link: $changelog"
-
           # Only show commits between the two tags
           if [[ -n "$prev_tag" ]]; then
             commit_list=$(git log "${prev_tag}..${new_tag}" --pretty=format:"- %s (%h)")
