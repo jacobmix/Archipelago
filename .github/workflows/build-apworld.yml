@@ -231,25 +231,26 @@ jobs:
           mkdir -p tmp_unzip
           unzip -q rac3.apworld -d tmp_unzip
           
-          # Read original version fields from the zip
+          # Extract original version info from inside the zip
           orig_version=$(jq -r '.version' tmp_unzip/rac3/archipelago.json)
           orig_compatible=$(jq -r '.compatible_version' tmp_unzip/rac3/archipelago.json)
-          echo "version: $orig_version"
-          echo "compatible_version: $orig_compatible"
+
+          echo "Original version: $orig_version"
+          echo "Original compatible_version: $orig_compatible"
 
           # Update manifest in unpacked .apworld while preserving version fields
           jq --arg world_version "$version" \
              --argjson authors "$authors_json" \
              --arg min_ap "0.6.3" \
              --arg max_ap "$ap_version" \
-             --arg set_version "$orig_version" \
-             --arg set_compatible "$orig_compatible" \
+             --argjson orig_version "$orig_version" \
+             --argjson orig_compatible "$orig_compatible" \
              '.world_version = $world_version
               | .authors = $authors
               | .minimum_ap_version = $min_ap
               | .maximum_ap_version = $max_ap
-              | .version = ($set_version | tonumber)
-              | .compatible_version = ($set_compatible | tonumber)' \
+              | .version = $orig_version
+              | .compatible_version = $orig_compatible' \
              tmp_unzip/rac3/archipelago.json > tmp_unzip/rac3/archipelago.json.tmp
 
           # Replace the old file with the updated one
