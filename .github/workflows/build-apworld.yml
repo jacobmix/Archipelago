@@ -104,17 +104,19 @@ jobs:
       
           class MyWorldContainer(Files.APWorldContainer):
               def write_contents(self, opened_zipfile: zipfile.ZipFile) -> None:
-                  # Write archipelago.json
-                  super().write_contents(opened_zipfile)
+                  # Write archipelago.json inside rac3/
+                  with opened_zipfile.open("rac3/archipelago.json", "w") as f:
+                      f.write(self.archipelago_json_bytes)
       
-                  # Include all files from world_folder
+                  # Include all files from world_folder inside rac3/
                   for root, dirs, files in os.walk(self.world_folder):
                       for file in files:
                           if file.endswith(".pyc"):
                               continue
                           full_path = os.path.join(root, file)
                           rel_path = os.path.relpath(full_path, self.world_folder)
-                          opened_zipfile.write(full_path, rel_path)
+                          zip_path = os.path.join("rac3", rel_path).replace("\\", "/")  # POSIX paths
+                          opened_zipfile.write(full_path, zip_path)
       
           src_folder = "worlds/rac3"
           dest_file = "rac3.apworld"
@@ -126,8 +128,9 @@ jobs:
           world.world_version = Version(1, 0, 0)
           world.minimum_ap_version = Version(0, 5, 0)
       
+          # Write the .apworld
           world.write()
-          print(f"Successfully created {dest_file} with all files and archipelago.json")
+          print(f"Successfully created {dest_file} with all files inside rac3/")
           EOF
 
       - name: Upload build artifact
