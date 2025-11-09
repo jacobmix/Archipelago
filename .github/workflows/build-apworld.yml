@@ -230,10 +230,12 @@ jobs:
           # Unzip the built .apworld
           mkdir -p tmp_unzip
           unzip -q rac3.apworld -d tmp_unzip
-
-          # Get original version fields from source folder
-          orig_version=$(jq -r '.version' worlds/rac3/archipelago.json)
-          orig_compatible=$(jq -r '.compatible_version' worlds/rac3/archipelago.json)
+          
+          # Read original version fields from the zip
+          orig_version=$(jq -r '.version' tmp_unzip/rac3/archipelago.json)
+          orig_compatible=$(jq -r '.compatible_version' tmp_unzip/rac3/archipelago.json)
+          echo "version: $orig_version"
+          echo "compatible_version: $orig_compatible"
 
           # Update manifest in unpacked .apworld while preserving version fields
           jq --arg world_version "$version" \
