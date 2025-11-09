@@ -97,17 +97,21 @@ jobs:
             --input worlds/rac3 \
             --output rac3.apworld
 
-      - name: Check if rac3.apworld was created
+      - name: Locate .apworld file
         shell: bash
         run: |
-          echo "Looking in the current directory..."
-          ls -l
-          echo "Looking in worlds..."
-          ls -l worlds
-          echo "Looking in worlds/rac3..."
-          ls -l worlds/rac3
-          echo "Looking in lib/worlds..."
-          ls -l lib/worlds || true
+          echo "🔍 Deep scanning for any .apworld file..."
+          found=$(find . -type f -name "rac3.apworld")
+          if [ -z "$found" ]; then
+            echo "❌ No .apworld file found in the repository!"
+            exit 1
+          fi
+          echo "✅ Found .apworld file(s):"
+          echo "$found"
+          # pick first occurrence (or you can add logic to select)
+          target=$(echo "$found" | head -n1)
+          echo "📦 Using .apworld: $target"
+          echo "artifact_path=$target" >> $GITHUB_OUTPUT
 
       - name: Upload build artifact
         if: steps.changes.outputs.should_build == 'true'
