@@ -390,7 +390,7 @@ jobs:
           fi
 
           cat <<EOF > release_notes.md
-          ## rac3 APWorld ${new_tag}
+          ## RaC3 APWorld ${new_tag}
       
           **Branch:** ${branch}  
           **Date:** $(date -u +"%Y-%m-%d %H:%M UTC")
