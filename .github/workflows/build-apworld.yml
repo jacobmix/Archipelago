@@ -198,8 +198,9 @@ jobs:
           [[ -z "$latest_tag" ]] && latest_tag="v0.0.0"
           echo "Latest tag: $latest_tag"
 
-          # Parse version
+          # Strip leading "v" if present
           tag_stripped="${latest_tag#v}"
+          # Split version safely (defaults if missing)
           IFS='.' read -r major minor patch <<< "$tag_stripped"
           major=${major:-0}; minor=${minor:-0}; patch=${patch:-0}
 
@@ -309,12 +310,12 @@ jobs:
           echo "🗑️ Removed extra archipelago.json"
 
           # Update CLIENT_VERSION in Rac3Client.py
-          #client_file="tmp_unzip/rac3/Rac3Client.py"
-          #old_version=$(grep '^CLIENT_VERSION = ' "$client_file" | cut -d'"' -f2 || echo "<none>")
-          #echo "🔧 Updating CLIENT_VERSION in $client_file from $old_version to $version"
-          #sed -i -E "s/^(CLIENT_VERSION = ).*/\1\"$version\"/" "$client_file"
+          client_file="tmp_unzip/rac3/Rac3Client.py"
+          old_version=$(grep '^CLIENT_VERSION = ' "$client_file" | cut -d'"' -f2 || echo "<none>")
+          echo "🔧 Updating CLIENT_VERSION in $client_file from $old_version to $version"
+          sed -i -E "s/^(CLIENT_VERSION = ).*/\1\"$version\"/" "$client_file"
           # Remove backup if any (from sed -i on some platforms)
-          #rm -f "${client_file}.bak"
+          rm -f "${client_file}.bak"
 
           # Rezip the .apworld
           cd tmp_unzip
