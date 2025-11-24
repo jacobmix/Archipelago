@@ -6,6 +6,19 @@ on:
       - main
       - staging
   workflow_dispatch:
+    inputs:
+      target_branch:
+        description: "Branch to build"
+        required: true
+        default: "main"
+      prerelease:
+        description: "Is this a pre-release?"
+        type: boolean
+        required: true
+        default: false
+      custom_version:
+        description: "Optional exact version (leave blank to auto-generate)"
+        required: false
   repository_dispatch:
     types: [trigger-build-apworld]
 
@@ -26,11 +39,23 @@ jobs:
         id: branch
         shell: bash
         run: |
-          branch="${{ github.event.client_payload.branch }}"
-          if [ -z "$branch" ]; then
-            branch="${GITHUB_REF#refs/heads/}"
+          # 1. workflow_dispatch override
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "branch=${{ github.event.inputs.target_branch }}" >> $GITHUB_OUTPUT
+            echo "🏗️ Manual trigger — using branch: ${{ github.event.inputs.target_branch }}"
+            exit 0
           fi
-          echo "🏗️ Building branch: $branch"
+
+          # 2. repository_dispatch override
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            echo "branch=${{ github.event.client_payload.branch }}" >> $GITHUB_OUTPUT
+            echo "🏗️ External trigger — using payload branch: ${{ github.event.client_payload.branch }}"
+            exit 0
+          fi
+
+          # 3. push event default
+          branch="${GITHUB_REF#refs/heads/}"
+          echo "🏗️ Push event — using branch: $branch"
           echo "branch=$branch" >> $GITHUB_OUTPUT
 
       - name: Checkout repository
@@ -89,11 +114,11 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel factorio-rcon-py nest-asyncio pyinstaller pillow requests zstandard pyevermizer dolphin-memory-engine Pymem --disable-pip-version-check || true  # ignore failures for other worlds
           pip install -r requirements.txt
 
-      - name: Build .apworld for rac3
+      - name: Build .apworld for RAC1
         if: steps.changes.outputs.should_build == 'true'
         shell: bash
         run: |
-          echo "📦 Building rac3.apworld..."
+          echo "📦 Building RAC1.apworld..."
           python3 - <<'EOF'
           import sys, os, zipfile
           sys.stdout.reconfigure(encoding='utf-8')
@@ -107,37 +132,37 @@ jobs:
                   # Write archipelago.json at root (handled by base class)
                   super().write_contents(opened_zipfile)
       
-                  # Include all files from world_folder inside rac3/
+                  # Include all files from world_folder inside RAC1/
                   for root, dirs, files in os.walk(self.world_folder):
                       for file in files:
                           if file.endswith(".pyc") or file == "archipelago.json":
                               continue
                           full_path = os.path.join(root, file)
                           rel_path = os.path.relpath(full_path, self.world_folder)
-                          zip_path = os.path.join("rac3", rel_path).replace("\\", "/")  # POSIX paths
+                          zip_path = os.path.join("RAC1", rel_path).replace("\\", "/")  # POSIX paths
                           opened_zipfile.write(full_path, zip_path)
       
-          src_folder = "worlds/rac3"
-          dest_file = "rac3.apworld"
+          src_folder = "worlds/RAC1"
+          dest_file = "RAC1.apworld"
       
           # Create container
           world = MyWorldContainer(dest_file)
-          world.game = "RaC3"
+          world.game = "RaC1"
           world.world_folder = src_folder
           world.world_version = Version(1, 0, 0)
           world.minimum_ap_version = Version(0, 5, 0)
       
           # Write the .apworld
           world.write()
-          print(f"Successfully created {dest_file} with all files under rac3/")
+          print(f"Successfully created {dest_file} with all files under RAC1/")
           EOF
 
       - name: Upload build artifact
         if: steps.changes.outputs.should_build == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: rac3.apworld
-          path: ./rac3.apworld
+          name: RAC1.apworld
+          path: ./RAC1.apworld
 
   release:
     needs: build
@@ -154,7 +179,7 @@ jobs:
       - name: Download built artifact
         uses: actions/download-artifact@v4
         with:
-          name: rac3.apworld
+          name: RAC1.apworld
           path: .
 
       - name: Install jq
@@ -170,46 +195,66 @@ jobs:
 
           echo "🔢 Determining next semantic version for branch: $branch"
 
-          # Get the latest tag, depending on branch type
+          # Get latest tag
           if [[ "$branch" == "main" ]]; then
               latest_tag=$(git tag --sort=-v:refname | grep -v -- '-pre$' | head -n 1 || true)
           else
               latest_tag=$(git tag --sort=-v:refname | grep -- '-pre$' | head -n 1 || true)
-          
-              # fallback: if no -pre tags exist yet
-              if [[ -z "$latest_tag" ]]; then
-                  latest_tag=$(git tag --sort=-v:refname | grep -v -- '-pre$' | head -n 1 || true)
-              fi
+              [[ -z "$latest_tag" ]] && latest_tag=$(git tag --sort=-v:refname | grep -v -- '-pre$' | head -n 1 || true)
           fi
 
-          if [[ -z "$latest_tag" ]]; then
-            echo "⚠️ No previous tags found. Starting from v0.0.0"
-            latest_tag="v0.0.0"
-          fi
-
+          [[ -z "$latest_tag" ]] && latest_tag="v0.0.0"
           echo "Latest tag: $latest_tag"
 
-          # Strip leading "v" if present
+          # Parse version
           tag_stripped="${latest_tag#v}"
-          # Split version safely (defaults if missing)
           IFS='.' read -r major minor patch <<< "$tag_stripped"
-          major=${major:-0}
-          minor=${minor:-0}
-          patch=${patch:-0}
+          major=${major:-0}; minor=${minor:-0}; patch=${patch:-0}
 
-          # Bump version based on branch type
-          if [[ "$branch" == "main" ]]; then
-            minor=$((minor + 1))
-            patch=0
-            version="${major}.${minor}.${patch}"
+          # Manual inputs
+          manual="${{ github.event_name == 'workflow_dispatch' }}"
+          manual_pre="${{ github.event.inputs.prerelease || false }}"
+          custom_version="${{ github.event.inputs.custom_version }}"
+
+          # Custom version overrides everything
+          if [[ "$manual" == "true" && -n "$custom_version" ]]; then
+              custom_version="$(echo -n "$custom_version" | xargs)"
+              echo "📝 Custom version provided: $custom_version"
+
+              if [[ "$custom_version" == *"-pre" ]]; then
+                  is_pre="true"
+              else
+                  is_pre="false"
+              fi
+
+              echo "version=$custom_version" >> $GITHUB_OUTPUT
+              echo "is_pre=$is_pre" >> $GITHUB_OUTPUT
+              echo "branch=$branch" >> $GITHUB_OUTPUT
+              exit 0
+          fi
+
+          # Determine prerelease
+          if [[ "$manual" == "true" ]]; then
+              is_pre="$manual_pre"
           else
-            patch=$((patch + 1))
-            version="${major}.${minor}.${patch}-pre"
+              is_pre="$([[ "$branch" != "main" ]] && echo "true" || echo "false")"
+          fi
+
+          # Auto bump version
+          if [[ "$is_pre" == "true" ]]; then
+              patch=$((patch + 1))
+              version="${major}.${minor}.${patch}-pre"
+          else
+              minor=$((minor + 1))
+              patch=0
+              version="${major}.${minor}.${patch}"
           fi
 
           echo "✅ Next version: $version"
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "branch=$branch" >> $GITHUB_OUTPUT
+          echo "is_pre=$is_pre" >> $GITHUB_OUTPUT
+
 
       - name: Add manifest to .apworld and set CLIENT_VERSION
         shell: bash
@@ -223,10 +268,10 @@ jobs:
 
           # Get authors from git history
           git fetch origin ${{ needs.build.outputs.branch }}
-          authors=$(git log --format='%aN' -- worlds/rac3 | sort -u)
+          authors=$(git log --format='%aN' -- worlds/RAC1 | sort -u)
 
           # Add custom authors. Example: ("NewContributor" "AnotherDev")
-          custom_authors=("1theory")
+          custom_authors=()
           for a in "${custom_authors[@]}"; do
             if ! echo "$authors" | grep -Fxq "$a"; then
               authors="${authors}"$'\n'"${a}"
@@ -247,7 +292,7 @@ jobs:
 
           # Unzip the built .apworld
           mkdir -p tmp_unzip
-          unzip -o -q rac3.apworld -d tmp_unzip
+          unzip -o -q RAC1.apworld -d tmp_unzip
 
           # Update only root archipelago.json
           jq --arg world_version "$version" \
@@ -266,20 +311,20 @@ jobs:
           mv tmp_unzip/archipelago.json.tmp tmp_unzip/archipelago.json
 
           # Remove nested archipelago.json but keep the root one
-          find tmp_unzip/rac3 -type f -name 'archipelago.json' -exec rm {} \;
+          find tmp_unzip/RAC1 -type f -name 'archipelago.json' -exec rm {} \;
           echo "🗑️ Removed extra archipelago.json"
 
-          # Update CLIENT_VERSION in Rac3Client.py
-          client_file="tmp_unzip/rac3/Rac3Client.py"
-          old_version=$(grep '^CLIENT_VERSION = ' "$client_file" | cut -d'"' -f2 || echo "<none>")
-          echo "🔧 Updating CLIENT_VERSION in $client_file from $old_version to $version"
-          sed -i -E "s/^(CLIENT_VERSION = ).*/\1\"$version\"/" "$client_file"
+          # Update CLIENT_VERSION in RAC1Client.py
+          #client_file="tmp_unzip/RAC1/RAC1Client.py"
+          #old_version=$(grep '^CLIENT_VERSION = ' "$client_file" | cut -d'"' -f2 || echo "<none>")
+          #echo "🔧 Updating CLIENT_VERSION in $client_file from $old_version to $version"
+          #sed -i -E "s/^(CLIENT_VERSION = ).*/\1\"$version\"/" "$client_file"
           # Remove backup if any (from sed -i on some platforms)
-          rm -f "${client_file}.bak"
+          #rm -f "${client_file}.bak"
 
           # Rezip the .apworld
           cd tmp_unzip
-          zip -qr ../rac3.apworld *
+          zip -qr ../RAC1.apworld *
           cd ..
 
           echo "✅ Updated archipelago.json at root"
@@ -291,12 +336,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            rac3.apworld
-            RaC3.yaml
+            RAC1.apworld
+            RAC1.yaml
           tag_name: v${{ steps.semver.outputs.version }}
-          name: "RaC3 APWorld v${{ steps.semver.outputs.version }}"
+          name: "RAC1 APWorld v${{ steps.semver.outputs.version }}"
           body: "Generating release notes..."
-          prerelease: ${{ contains(steps.semver.outputs.version, '-pre') }}
+          prerelease: ${{ steps.semver.outputs.is_pre == 'true' }}
           target_commitish: ${{ needs.build.outputs.branch }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -351,7 +396,7 @@ jobs:
           fi
 
           cat <<EOF > release_notes.md
-          ## RaC3 APWorld ${new_tag}
+          ## RAC1 APWorld ${new_tag}
       
           **Branch:** ${branch}  
           **Date:** $(date -u +"%Y-%m-%d %H:%M UTC")
@@ -363,15 +408,11 @@ jobs:
       
           </details>
       
-          **Full changelog and compare**: ${changelog}
-
           ### Notes
           This release was automatically generated from the **${branch}** branch.  
           Latest (main) releases are recommended, as pre-releases (staging) may contain experimental or in-progress changes.
-
-          ### If a location is broken and does not get sent out
-          Go to the server console (locally or via the Archipelago room page) and run:  
-          \`/send_location <player_name> <location>\` Example: \`/send_location TaoshiRaC3 "Crash Site: Infobot: Aridia"\`
+      
+          **Full changelog and compare**: ${changelog}
           EOF
 
       - name: Update GitHub Release with generated notes
