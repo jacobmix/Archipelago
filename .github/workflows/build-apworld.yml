@@ -7,10 +7,6 @@ on:
       - staging
   workflow_dispatch:
     inputs:
-      target_branch:
-        description: "Branch to build"
-        required: true
-        default: "main"
       prerelease:
         description: "Is this a pre-release?"
         type: boolean
@@ -39,10 +35,12 @@ jobs:
         id: branch
         shell: bash
         run: |
-          # 1. workflow_dispatch override
+          # 1. workflow_dispatch: use the branch the user selected in the UI
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "branch=${{ github.event.inputs.target_branch }}" >> $GITHUB_OUTPUT
-            echo "🏗️ Manual trigger — using branch: ${{ github.event.inputs.target_branch }}"
+            # github.ref always contains refs/heads/<branch>
+            branch="${GITHUB_REF#refs/heads/}"
+            echo "branch=$branch" >> $GITHUB_OUTPUT
+            echo "🏗️ Manual trigger — using branch: $branch"
             exit 0
           fi
 
