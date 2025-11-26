@@ -112,6 +112,29 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel factorio-rcon-py nest-asyncio pyinstaller pillow requests zstandard pyevermizer dolphin-memory-engine Pymem --disable-pip-version-check || true  # ignore failures for other worlds
           pip install -r requirements.txt
 
+      - name: Generate YAML template for rac3 and rename to rac3.yaml
+        shell: bash
+        run: |
+          python3 Generate.py --templates --world rac3
+          # Archipelago templates outputs to Players/
+          TEMPLATE_FILE="Ratchet & Clank 3.yaml"
+
+          if [[ ! -f "Players/$TEMPLATE_FILE" ]]; then
+            echo "❌ Template was not produced: Players/$TEMPLATE_FILE"
+            ls -R Players || true
+            exit 1
+          fi
+
+          mv "Players/$TEMPLATE_FILE" "./rac3.yaml"
+          echo "Renamed template to rac3.yaml"
+
+      - name: Upload template artifact
+        if: steps.changes.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rac3.yaml
+          path: ./rac3.yaml
+
       - name: Build .apworld for rac3
         if: steps.changes.outputs.should_build == 'true'
         shell: bash
