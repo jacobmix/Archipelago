@@ -100,11 +100,11 @@ jobs:
           echo "✅ Relevant changes detected — proceed with build/release."
           echo "should_build=true" >> $GITHUB_OUTPUT
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         if: steps.changes.outputs.should_build == 'true'
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
 
       - name: Install Python dependencies
         if: steps.changes.outputs.should_build == 'true'
