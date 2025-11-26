@@ -115,7 +115,7 @@ jobs:
       - name: Generate YAML template for rac3 and rename to rac3.yaml
         shell: bash
         run: |
-          python3 Generate.py --templates --world rac3
+          python Generate.py --templates --world rac3
           # Archipelago templates outputs to Players/
           TEMPLATE_FILE="Ratchet & Clank 3.yaml"
 
