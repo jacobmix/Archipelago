@@ -113,6 +113,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip setuptools wheel factorio-rcon-py nest-asyncio pyinstaller pillow requests zstandard pyevermizer dolphin-memory-engine Pymem --disable-pip-version-check || true  # ignore failures for other worlds
           pip install -r requirements.txt
+          pip install maseya-z3pr>=1.0.0rc1 xxtea>=3.0.0
 
       - name: Generate YAML template for rac3 and rename to rac3.yaml
         if: steps.changes.outputs.should_build == 'true'
