@@ -115,6 +115,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Generate YAML template for rac3 and rename to rac3.yaml
+        if: steps.changes.outputs.should_build == 'true'
         shell: bash
         run: |
           python Generate.py --templates --world rac3
