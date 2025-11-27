@@ -121,14 +121,16 @@ jobs:
         env:
           SKIP_REQUIREMENTS_UPDATE: "1"   
         run: |
-          python Generate.py --templates --world rac3 -y
+          set +e   # Allow errors in Generate.py without failing the step
           # Archipelago templates outputs to Players/
-          TEMPLATE_FILE="Ratchet & Clank 3.yaml"
+          python Generate.py --templates --world rac3 -y || true
+          set -e   # Restore fail-on-error
 
+          TEMPLATE_FILE="Ratchet & Clank 3.yaml"
           if [[ ! -f "Players/$TEMPLATE_FILE" ]]; then
-            echo "❌ Template was not produced: Players/$TEMPLATE_FILE"
-            ls -R Players || true
-            exit 1
+           echo "❌ Template was not produced: Players/$TEMPLATE_FILE"
+           ls -R Players || true
+           exit 1
           fi
 
           mv "Players/$TEMPLATE_FILE" "./rac3.yaml"
