@@ -115,26 +115,71 @@ jobs:
           pip install maseya-z3pr>=1.0.0rc1 xxtea>=3.0.0 
           # pip install zilliandomizer==0.9.1
 
-      - name: Generate YAML template for rac3 and rename to rac3.yaml
+      - name: 🧪 Run Archipelago generation and create YAML
         if: steps.changes.outputs.should_build == 'true'
-        shell: bash
+        shell: pwsh
         env:
-          SKIP_REQUIREMENTS_UPDATE: "1"   
+          AP_NO_UPDATE: "1"
+          SKIP_REQUIREMENTS_UPDATE: "1"
         run: |
-          set +e   # Allow errors in Generate.py without failing the step
-          # Archipelago templates outputs to Players/
-          python Generate.py --templates --world rac3 -y || true
-          set -e   # Restore fail-on-error
+          $ErrorActionPreference = "Stop"
+          $rootDir = "${{ github.workspace }}"
+          Set-Location $rootDir
 
-          TEMPLATE_FILE="Ratchet & Clank 3.yaml"
-          if [[ ! -f "Players/$TEMPLATE_FILE" ]]; then
-           echo "❌ Template was not produced: Players/$TEMPLATE_FILE"
-           ls -R Players || true
-           exit 1
-          fi
+          Write-Host "🧪 Generating template options..."
+          python Launcher.py "Generate Template Options" || true
 
-          mv "Players/$TEMPLATE_FILE" "./rac3.yaml"
-          echo "Renamed template to rac3.yaml"
+          Write-Host "📂 Checking Players/Templates folder..."
+          Get-ChildItem -Recurse Players/Templates | Write-Host
+
+          # Ensure Players folder exists
+          if (-Not (Test-Path Players)) { New-Item -ItemType Directory -Path Players }
+
+          # Copy the RaC3 template YAML
+          $yamlSource = Join-Path $rootDir 'Players/Templates/Ratchet & Clank 3.yaml'
+          $yamlDest   = Join-Path $rootDir 'Players/Ratchet & Clank 3.yaml'
+          $yamlRoot   = Join-Path $rootDir 'RaC3.yaml'
+          if (-Not (Test-Path $yamlSource)) { Write-Error "Template YAML not found: $yamlSource" }
+          Copy-Item -LiteralPath $yamlSource -Destination $yamlDest -Force
+
+          # Read YAML
+          $yamlContent = Get-Content -LiteralPath $yamlDest -Raw
+
+          # Detect existing version
+          if ($yamlContent -match 'version:\s*(\d+)\.(\d+)\.(\d+)') {
+              $major = [int]$matches[1]
+              $minor = [int]$matches[2]
+              $patch = [int]$matches[3]
+              Write-Host "Found template version: $major.$minor.$patch"
+
+              if ($patch -gt 0) {
+                  $patch -= 1
+              } elseif ($minor -gt 0) {
+                  $minor -= 1
+                  $patch = 0
+              } else {
+                  Write-Warning "Version is already at 0.0.0 — cannot decrement"
+              }
+
+              $newVersion = "$major.$minor.$patch"
+              Write-Host "Lowered version for build: $newVersion"
+
+              # Replace version in YAML
+              $yamlContent = $yamlContent -replace 'version:\s*\d+\.\d+\.\d+', "version: $newVersion"
+          } else {
+              Write-Warning "No version line found in YAML — skipping version edit"
+          }
+
+          # Write YAML back
+          Set-Content -LiteralPath $yamlDest -Value $yamlContent -Force
+          Copy-Item -LiteralPath $yamlDest -Destination $yamlRoot -Force
+          Write-Host "✅ YAML edited successfully."
+
+          # Optional: test seed generation
+          Write-Host "🧪 Testing seed generation..."
+          python Generate.py || true
+
+          Write-Host "✅ Test step completed."
 
       - name: Upload template artifact
         if: steps.changes.outputs.should_build == 'true'
