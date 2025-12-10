@@ -71,7 +71,7 @@ async def run_client_async(ap_url=None):
     if ap_url:
         await ctx.handle_apshar(Path(ap_url))
     else:
-        await server_loop(ctx)
+        await ctx.start()
 
 def run_client(ap_url=None):
     asyncio.run(run_client_async(ap_url))
