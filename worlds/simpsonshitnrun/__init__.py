@@ -1,15 +1,23 @@
 from base64 import b64encode
+import asyncio
+import settings
 import logging
 import os
+import sys
+import subprocess
 import json
 import pkgutil
 import re
+import typing
 from typing import Any, Dict, TextIO
 from pathlib import Path
 from typing import Callable, Optional
 from Options import OptionError
 
 import Utils
+from worlds.AutoWorld import World
+from BaseClasses import MultiWorld
+from Utils import open_file, local_path
 from worlds.generic.Rules import forbid_items_for_player
 from worlds.LauncherComponents import Component, SuffixIdentifier, components, Type, launch_subprocess
 
@@ -23,6 +31,7 @@ from .Regions import create_regions
 from .Items import SimpsonsHitAndRunItem
 from .Rules import set_rules
 from .Options import SimpsonsHitAndRunOptions
+from .SHARContainer import gen
 from .Helpers import is_option_enabled, is_item_enabled, get_option_value
 
 from BaseClasses import ItemClassification, Tutorial, Item
@@ -38,17 +47,86 @@ from .hooks.World import \
     before_fill_slot_data, after_fill_slot_data, before_write_spoiler
 from .hooks.Data import hook_interpret_slot_data
 
-from .SHARContainer import gen
+# ---- World Registration ----
+def get_options():
+    return SimpsonsHitAndRunOptions
+
+
+def get_world():
+    return SimpsonsHitAndRunWorld
+
+
+# ---- Client Launcher Helpers ----
+def _launch_shar_client_process():
+    import os, sys, subprocess
+    client_path = os.path.join(os.path.dirname(__file__), "SHARClient.py")
+    subprocess.Popen([sys.executable, client_path])
+
+
+# ---- Client Launcher ----
+async def run_client_async(ap_url=None):
+    from .SHARClient import SHARContext
+    ctx = SHARContext()  # lightweight constructor
+    await ctx.initialize()  # tasks can be scheduled safely
+    if ap_url:
+        await ctx.handle_apshar(Path(ap_url))
+    else:
+        await server_loop(ctx)
+
+def run_client(ap_url=None):
+    asyncio.run(run_client_async(ap_url))
+
+
+
+# ---- Component Registration ----
+components.append(
+    Component(
+        "Simpsons Hit & Run Client",
+        func=run_client,
+        component_type=Type.CLIENT,
+        file_identifier=SuffixIdentifier(".apshar"),
+        cli=True
+    )
+)
+
+class SHARSettings(settings.Group):
+    class SHARIniPath(str):
+        """
+        Custom path where SHAR.ini will be extracted.
+        Example: "%USERPROFILE%/My Games/Lucas' Simpsons Hit & Run Mod Launcher/Saved Games/APSHARRandomizer"
+        """
+        pass
+
+    class SHARRandomizerExe(str):
+        """
+        Path to SHARRandomizer.exe to auto-launch.
+        Example: "C:/Program Files (x86)/Vivendi Universal Games/The Simpsons Hit & Run/SHARRandomizer.exe"
+        """
+        pass
+
+    class LucasLauncherExe(str):
+        """
+        Path to Lucas' Mod Launcher.exe to auto-launch.
+        Can't auto launch straight into running the mod saldy.
+        Example: "C:/Program Files (x86)/Vivendi Universal Games/The Simpsons Hit & Run/Lucas Simpsons Hit & Run Mod Launcher.exe"
+        """
+        pass
+
+    ini_path: SHARIniPath = SHARIniPath("")
+    sharrandomizer: SHARRandomizerExe = SHARRandomizerExe("")
+    lucas_launcher: LucasLauncherExe = LucasLauncherExe("")
+
 
 class SimpsonsHitAndRunWorld(World):
     """A 2003 Action Adventure game similar to the GTA series starring the Simpsons"""
     game = "The Simpsons Hit And Run"
     web = world_webworld
 
+    settings: typing.ClassVar[SHARSettings] = SHARSettings()
     options_dataclass = SimpsonsHitAndRunOptions
     data_version = 2
     required_client_version = (0, 5, 0)
-    apworld_version = "0.4.1"
+    apworld_version = "0.4.2"
     # These properties are set from the imports of the same name above.
     item_table = item_table
     location_table = location_table # this is likely imported from Data instead of Locations because the Game Complete location should not be in here, but is used for lookups
@@ -498,6 +576,9 @@ class SimpsonsHitAndRunWorld(World):
             igh[item["id"]] = (loc.address, loc.player)
 
         for _, item in self.mission_locks.items():
+            if item == "NO MISSIONLOCKS":
+                continue
+
             itemName = self.vehicle_item_to_vehicle[item]
             item = item_name_to_item[itemName]
             try:
@@ -511,7 +592,7 @@ class SimpsonsHitAndRunWorld(World):
         return igh
 
     def generate_output(self, output_directory: str):
-        filename = f"{self.multiworld.get_out_file_name_base(self.player)}_SHAR"
+        filename = f"{self.multiworld.get_out_file_name_base(self.player)}"
 
         traffic_table = (
             self.random.sample(list(self.vehicle_item_to_vehicle.keys()), 35)
