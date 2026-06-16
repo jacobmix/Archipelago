@@ -20,9 +20,20 @@ from psutil import NoSuchProcess
 # Archipelago imports
 import ModuleUpdate
 import Utils
-from CommonClient import ClientCommandProcessor, CommonContext, server_loop, gui_enabled
 from NetUtils import ClientStatus
 from PyMemoryEditor import OpenProcess, ProcessNotFoundError
+from CommonClient import server_loop, gui_enabled
+
+tracker_loaded = False
+try:
+    from worlds.tracker.TrackerClient import (
+        TrackerCommandProcessor as ClientCommandProcessor,
+        TrackerGameContext as CommonContext,
+        UT_VERSION,
+    )
+    tracker_loaded = True
+except ImportError:
+    from CommonClient import ClientCommandProcessor, CommonContext
 
 # Jak imports
 from .game_id import jak1_name, jak1_gk, jak1_goalc
@@ -116,17 +127,32 @@ class JakAndDaxterContext(CommonContext):
         # self.memr.load_data()
         super().__init__(server_address, password)
 
+    def run_generator(self):
+        if tracker_loaded:
+            super().run_generator()
+
+    def make_gui(self):
+        manager_class = super().make_gui()
+
+        manager_class.logging_pairs = [
+            ("Client", "Archipelago")
+        ]
+        title = "Jak and Daxter ArchipelaGOAL Client"
+
+        if tracker_loaded:
+            title += f" | Universal Tracker {UT_VERSION}"
+        title += " | Archipelago"
+        manager_class.base_title = title
+
+        return manager_class
+
     def run_gui(self):
-        from kvui import GameManager
-
-        class JakAndDaxterManager(GameManager):
-            logging_pairs = [
-                ("Client", "Archipelago")
-            ]
-            base_title = "Jak and Daxter ArchipelaGOAL Client"
-
-        self.ui = JakAndDaxterManager(self)
-        self.ui_task = asyncio.create_task(self.ui.async_run(), name="UI")
+        ui_class = self.make_gui()
+        self.ui = ui_class(self)
+        self.ui_task = asyncio.create_task(
+            self.ui.async_run(),
+            name="UI"
+        )
 
     async def server_auth(self, password_requested: bool = False):
         if password_requested and not self.password:
@@ -146,6 +172,7 @@ class JakAndDaxterContext(CommonContext):
         await super(JakAndDaxterContext, self).disconnect(allow_autoreconnect)
 
     def on_package(self, cmd: str, args: dict):
+        super().on_package(cmd, args)
 
         if cmd == "RoomInfo":
             self.slot_seed = args["seed_name"]
@@ -672,6 +699,10 @@ async def main():
     Utils.init_logging("JakAndDaxterClient", exception_logger="Client")
 
     ctx = JakAndDaxterContext(None, None)
+    if tracker_loaded:
+        ctx.run_generator()
+        ctx.tags.discard("Tracker")
+
     ctx.server_task = asyncio.create_task(server_loop(ctx), name="server loop")
     ctx.repl_task = create_task_log_exception(ctx.run_repl_loop())
     ctx.memr_task = create_task_log_exception(ctx.run_memr_loop())
