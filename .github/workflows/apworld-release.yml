@@ -17,11 +17,6 @@ name: APWorld Release
 on:
   workflow_dispatch:
     inputs:
-      branch:
-        description: "Branch to build"
-        required: true
-        default: "main"
-
       world:
         description: "World folder (example: apquest)"
         required: true
@@ -30,30 +25,30 @@ on:
       bump:
         description: "Version bump"
         type: choice
-        default: "patch"
+        default: patch
         options:
-          - "patch"
-          - "minor"
-          - "major"
-          - "none"
+          - patch
+          - minor
+          - major
+          - none
 
       world_version:
-        description: "Override world_version (blank = bump)"
+        description: "Override world_version (blank = use bump)"
         required: false
         default: ""
 
       game:
-        description: "Override game"
+        description: "Override game (blank = keep existing)"
         required: false
         default: ""
 
       minimum_ap_version:
-        description: "Override minimum_ap_version"
+        description: "Override minimum_ap_version (blank = keep existing)"
         required: false
         default: ""
 
       maximum_ap_version:
-        description: "Override maximum_ap_version"
+        description: "Override maximum_ap_version (blank = keep existing)"
         required: false
         default: ""
 
@@ -63,20 +58,25 @@ on:
         default: ""
 
       clamp_minimum_ap_version:
-        description: "Clamp minimum_ap_version to latest stable AP release"
+        description: "Clamp minimum_ap_version to latest stable Archipelago release"
         type: boolean
-        default: "true"
+        default: true
 
       include_changelog:
         description: "Include changelog in release notes"
         type: boolean
-        default: "true"
+        default: true
+
+      release_notes_file:
+        description: "Release notes template (blank = built-in)"
+        required: false
+        default: "apworld_release_notes.md"
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
 
     env:
@@ -88,12 +88,17 @@ jobs:
       # Checkout
       ####################################################################
 
-      - uses: actions/checkout@v5
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.inputs.branch }}
           fetch-depth: 0
 
-      - uses: actions/setup-python@v6
+      ####################################################################
+      # Python
+      ####################################################################
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
@@ -107,22 +112,34 @@ jobs:
       ####################################################################
 
       - name: Get latest stable Archipelago version
-        id: ap
-        env:
-          GH_TOKEN: ${{ github.token }}
+        id: stable_ap
         run: |
 
-          VERSION=$(curl -fsSL \
-            https://api.github.com/repos/ArchipelagoMW/Archipelago/releases \
-            | jq -r '[.[] | select(.prerelease == false)][0].tag_name' \
-            | sed 's/^v//')
+          python <<'PY'
+          import json
+          import urllib.request
+          import os
 
-          echo "Latest stable AP version: $VERSION"
+          url = "https://api.github.com/repos/ArchipelagoMW/Archipelago/releases"
 
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          with urllib.request.urlopen(url) as r:
+              releases = json.load(r)
+
+          stable = next(
+              r for r in releases
+              if not r["prerelease"]
+          )
+
+          version = stable["tag_name"].removeprefix("v")
+
+          print(f"Latest stable Archipelago: {version}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              print(f"version={version}", file=f)
+          PY
 
       ####################################################################
-      # Update archipelago.json
+      # Read / Update archipelago.json
       ####################################################################
 
       - name: Update manifest
@@ -136,7 +153,7 @@ jobs:
           MAXIMUM: ${{ github.event.inputs.maximum_ap_version }}
           AUTHORS: ${{ github.event.inputs.authors }}
           CLAMP: ${{ github.event.inputs.clamp_minimum_ap_version }}
-          STABLE_AP: ${{ steps.ap.outputs.version }}
+          STABLE_AP: ${{ steps.stable_ap.outputs.version }}
         run: |
 
           python <<'PY'
@@ -144,98 +161,150 @@ jobs:
           import os
           from pathlib import Path
 
-          def version_tuple(v):
+          def parse(v):
               return tuple(map(int, v.split(".")))
 
-          path = Path(f"worlds/{os.environ['WORLD']}/archipelago.json")
+          world = os.environ["WORLD"]
 
-          data = json.loads(path.read_text())
+          manifest_path = Path(f"worlds/{world}/archipelago.json")
 
-          override = os.environ["OVERRIDE_VERSION"]
+          if not manifest_path.exists():
+              raise SystemExit(f"{manifest_path} not found")
 
-          if override:
-              version = override
-          else:
-              version = data["world_version"]
+          manifest = json.loads(manifest_path.read_text())
 
-              if os.environ["BUMP"] != "none":
-                  major, minor, patch = map(int, version.split("."))
+          original = manifest.copy()
 
-                  if os.environ["BUMP"] == "major":
-                      major += 1
-                      minor = 0
-                      patch = 0
+          #
+          # world_version
+          #
 
-                  elif os.environ["BUMP"] == "minor":
-                      minor += 1
-                      patch = 0
+          if os.environ["OVERRIDE_VERSION"]:
+              manifest["world_version"] = os.environ["OVERRIDE_VERSION"]
 
-                  elif os.environ["BUMP"] == "patch":
-                      patch += 1
+          elif os.environ["BUMP"] != "none":
 
-                  version = f"{major}.{minor}.{patch}"
+              major, minor, patch = map(
+                  int,
+                  manifest["world_version"].split(".")
+              )
 
-          data["world_version"] = version
+              bump = os.environ["BUMP"]
+
+              if bump == "major":
+                  major += 1
+                  minor = 0
+                  patch = 0
+
+              elif bump == "minor":
+                  minor += 1
+                  patch = 0
+
+              elif bump == "patch":
+                  patch += 1
+
+              manifest["world_version"] = f"{major}.{minor}.{patch}"
+
+          #
+          # overrides
+          #
 
           if os.environ["GAME"]:
-              data["game"] = os.environ["GAME"]
+              manifest["game"] = os.environ["GAME"]
 
           if os.environ["MINIMUM"]:
-              data["minimum_ap_version"] = os.environ["MINIMUM"]
+              manifest["minimum_ap_version"] = os.environ["MINIMUM"]
 
           if os.environ["MAXIMUM"]:
-              data["maximum_ap_version"] = os.environ["MAXIMUM"]
+              manifest["maximum_ap_version"] = os.environ["MAXIMUM"]
 
           if os.environ["AUTHORS"]:
-              data["authors"] = [
-                  x.strip()
-                  for x in os.environ["AUTHORS"].split(",")
-                  if x.strip()
+              manifest["authors"] = [
+                  a.strip()
+                  for a in os.environ["AUTHORS"].split(",")
+                  if a.strip()
               ]
+
+          #
+          # clamp minimum AP version
+          #
 
           if (
               os.environ["CLAMP"] == "true"
-              and "minimum_ap_version" in data
+              and "minimum_ap_version" in manifest
           ):
               stable = os.environ["STABLE_AP"]
 
-              if version_tuple(data["minimum_ap_version"]) > version_tuple(stable):
-                  print(
-                      f"Clamping minimum_ap_version "
-                      f"{data['minimum_ap_version']} -> {stable}"
-                  )
-                  data["minimum_ap_version"] = stable
+              if parse(manifest["minimum_ap_version"]) > parse(stable):
+                  manifest["minimum_ap_version"] = stable
 
-          path.write_text(
-              json.dumps(data, indent=4) + "\n"
+          #
+          # save
+          #
+
+          manifest_path.write_text(
+              json.dumps(manifest, indent=4) + "\n"
           )
 
+          #
+          # summary
+          #
+
+          print("")
+          print("Manifest changes")
+          print("=" * 60)
+
+          for key in (
+              "game",
+              "world_version",
+              "minimum_ap_version",
+              "maximum_ap_version",
+              "authors",
+          ):
+              old = original.get(key, "<unset>")
+              new = manifest.get(key, "<unset>")
+
+              if old != new:
+                  print(f"{key}:")
+                  print(f"  {old}")
+                  print(f"  -> {new}")
+              else:
+                  print(f"{key}: unchanged")
+
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              print(f"world_version={version}", file=f)
-              print(f"game={data['game']}", file=f)
+              print(
+                  f"world_version={manifest['world_version']}",
+                  file=f
+              )
+              print(
+                  f"game={manifest['game']}",
+                  file=f
+              )
 
           PY
 
       ####################################################################
-      # Commit manifest
+      # Commit manifest update
       ####################################################################
 
-      - name: Commit version bump
+      - name: Commit manifest
         run: |
 
-          git config user.name github-actions
-          git config user.email github-actions@github.com
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
 
-          git add worlds/${{ github.event.inputs.world }}/archipelago.json
+          git add \
+            worlds/${{ github.event.inputs.world }}/archipelago.json
+
+          git diff --cached --quiet && exit 0
 
           git commit \
-            -m "Release ${{ github.event.inputs.world }} v${{ steps.manifest.outputs.world_version }}" \
-            || true
+            -m "Release ${{ github.event.inputs.world }} v${{ steps.manifest.outputs.world_version }}"
 
-          git push origin HEAD:${{ github.event.inputs.branch }}
+          git push
 
       ####################################################################
-      # Build
+      # Build APWorld
       ####################################################################
 
       - name: Build APWorld
@@ -246,110 +315,201 @@ jobs:
             -- \
             "${{ github.event.inputs.world }}"
 
-      - name: Verify output
+      ####################################################################
+      # Verify output
+      ####################################################################
+
+      - name: Verify APWorld exists
         run: |
 
-          test -f build/apworlds/${{ github.event.inputs.world }}.apworld
+          APWORLD="build/apworlds/${{ github.event.inputs.world }}.apworld"
+
+          if [ ! -f "$APWORLD" ]; then
+            echo "::error::Expected $APWORLD"
+            exit 1
+          fi
+
+          ls -lh "$APWORLD"
 
       ####################################################################
-      # Previous Release
+      # Find previous release for this world
       ####################################################################
 
       - name: Find previous release
-        id: previous
+        id: previous_release
         env:
           GH_TOKEN: ${{ github.token }}
+          WORLD: ${{ github.event.inputs.world }}
         run: |
 
           TAG=$(gh release list \
             --limit 200 \
-            --json tagName \
-            --jq '.[] | .tagName' \
-            | grep "^${{ github.event.inputs.world }}-v" \
-            | head -n1 || true)
+            --json tagName,isDraft,isPrerelease \
+            --jq "
+              .[]
+              | select(.isDraft == false)
+              | select(.isPrerelease == false)
+              | select(.tagName | startswith(\"${WORLD}-v\"))
+              | .tagName
+            " \
+            | head -n1)
 
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Previous release: ${TAG:-none}"
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
 
       ####################################################################
-      # Release Notes
+      # Generate release notes
       ####################################################################
 
       - name: Generate release notes
         env:
           WORLD: ${{ github.event.inputs.world }}
           VERSION: ${{ steps.manifest.outputs.world_version }}
-          BRANCH: ${{ github.event.inputs.branch }}
-          PREVIOUS: ${{ steps.previous.outputs.tag }}
           INCLUDE_CHANGELOG: ${{ github.event.inputs.include_changelog }}
+          NOTES_FILE: ${{ github.event.inputs.release_notes_file }}
+          PREVIOUS_TAG: ${{ steps.previous_release.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
         run: |
 
-          cat > release_notes.md <<EOF
-          ## Installation & Setup
+          python <<'PY'
+          import os
+          import subprocess
+          from pathlib import Path
+
+          world = os.environ["WORLD"]
+          version = os.environ["VERSION"]
+          previous = os.environ["PREVIOUS_TAG"]
+          repo = os.environ["REPOSITORY"]
+          branch = os.environ["BRANCH"]
+
+          notes_file = os.environ["NOTES_FILE"]
+
+          #
+          # Load custom template if available
+          #
+
+          template = None
+
+          if notes_file:
+              path = Path(notes_file)
+
+              if path.exists():
+                  template = path.read_text()
+
+          if template:
+              notes = template.replace(
+                  "{VERSION}",
+                  version
+              )
+
+          else:
+              notes = f"""## Installation & Setup
 
           - Requires [Archipelago Launcher](https://github.com/ArchipelagoMW/Archipelago/releases/latest). (Make sure you're up-to-date).
-          - Download the \`.apworld\` file below and double-click it to install. After the installation confirmation appears, restart Archipelago.
+          - Download the `.apworld` file below and double-click it to install. After the installation confirmation appears, restart Archipelago.
           - Use **Options Creator** or **Generate Template Options** in the Archipelago Launcher to generate player option YAML files.
-          - Place your edited player option YAMLs in the \`Players\` folder. (Use **Browse Files...** in the Launcher to open your Archipelago directory.)
-          - Make sure you have all required \`.apworld\` files, your player YAMLs, and any desired \`host.yaml\` settings ready before generating. (\`server_password\` is recommended for admin login.)
-          - Click **Generate** to create a multiworld \`.zip\` in the \`output\` folder. (The terminal closes automatically if generation succeeds.)
-          - Upload the generated \`.zip\` to https://archipelago.gg/uploads or self-host. (Self hosting to other players requires port forwarding)
-          - Documentation:
-            https://github.com/${{ github.repository }}/tree/${BRANCH}/worlds/${WORLD}/docs
-          - If you encounter errors, run ArchipelagoLauncherDebug.exe (or start from a terminal) and inspect the logs folder.
-          - Need help? https://discord.gg/8Z65BR2
+          - Place your edited player option YAMLs in the `Players` folder. (Use **Browse Files...** in the Launcher to open your Archipelago directory.)
+          - Make sure you have all required `.apworld` files, your player YAMLs, and any desired `host.yaml` settings ready before generating. (`server_password` is recommended for admin login.)
+          - Click **Generate** to create a multiworld `.zip` in the `output` folder. (The terminal closes automatically if generation succeeds.)
+          - Upload the generated `.zip` to https://archipelago.gg/uploads or self-host. (Self-hosting requires port forwarding.)
+          - For detailed setup instructions and game-specific randomizer documentation, see: https://github.com/{repo}/tree/{branch}/worlds/{world}/docs
+          - If you encounter errors, run `ArchipelagoLauncherDebug.exe` (or launch Archipelago from a terminal) and check the `logs` folder.
+          - Need help? Join the Archipelago Discord: https://discord.gg/8Z65BR2
 
-          EOF
+          """
 
-          if [ "$INCLUDE_CHANGELOG" = "true" ]; then
+          #
+          # Add changelog
+          #
 
-            echo "" >> release_notes.md
-            echo "## Changelog" >> release_notes.md
-            echo "" >> release_notes.md
+          if os.environ["INCLUDE_CHANGELOG"] == "true":
 
-            if [ -n "$PREVIOUS" ]; then
+              notes += "\n\n## Changelog\n\n"
 
-              git log \
-                "$PREVIOUS"..HEAD \
-                --no-merges \
-                --pretty="- %s (%h)" \
-                -- \
-                worlds/${WORLD}/ \
-                >> release_notes.md
+              if previous:
 
-            else
+                  command = [
+                      "git",
+                      "log",
+                      f"{previous}..HEAD",
+                      "--no-merges",
+                      "--pretty=- %s (%h)",
+                      "--",
+                      f"worlds/{world}/"
+                  ]
 
-              git log \
-                --no-merges \
-                --pretty="- %s (%h)" \
-                -- \
-                worlds/${WORLD}/ \
-                >> release_notes.md
+              else:
 
-            fi
+                  command = [
+                      "git",
+                      "log",
+                      "--no-merges",
+                      "--pretty=- %s (%h)",
+                      "--",
+                      f"worlds/{world}/"
+                  ]
 
-          fi
+              result = subprocess.run(
+                  command,
+                  capture_output=True,
+                  text=True
+              )
+
+              changelog = result.stdout.strip()
+
+              if changelog:
+                  notes += changelog
+              else:
+                  notes += "- No changes since previous release."
+
+              if previous:
+                  current = f"{world}-v{version}"
+
+                  notes += (
+                      "\n\n"
+                      f"Full comparison:\n"
+                      f"https://github.com/{repo}/compare/{previous}...{current}"
+                  )
+
+          Path("release_notes.md").write_text(notes)
+
+          PY
+
 
       ####################################################################
-      # Tag
+      # Create tag
       ####################################################################
 
-      - name: Create tag
+      - name: Create release tag
+        id: tag
+        env:
+          WORLD: ${{ github.event.inputs.world }}
+          VERSION: ${{ steps.manifest.outputs.world_version }}
         run: |
 
-          TAG="${{ github.event.inputs.world }}-v${{ steps.manifest.outputs.world_version }}"
+          TAG="${WORLD}-v${VERSION}"
+
+          echo "Creating tag: $TAG"
 
           git tag "$TAG"
 
           git push origin "$TAG"
 
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+
       ####################################################################
-      # Release
+      # Create GitHub Release
       ####################################################################
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.event.inputs.world }}-v${{ steps.manifest.outputs.world_version }}
-          name: ${{ github.event.inputs.world }} apworld release v${{ steps.manifest.outputs.world_version }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "${{ github.event.inputs.world }} APWorld release v${{ steps.manifest.outputs.world_version }}"
           body_path: release_notes.md
-          files: build/apworlds/${{ github.event.inputs.world }}.apworld
+          files: |
+            build/apworlds/${{ github.event.inputs.world }}.apworld
