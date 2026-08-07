@@ -1,8 +1,8 @@
 # TODO:
 # COMMENTS. Mainly how to use custom release notes file, and game name override being needed if no manifest exisists.
 # DEFAULTS. See if theres a way to customize defaults else just recommend people make copies of the workflow with their own defaults for each branch.
-# TESTS. Maybe do some tests before making the release.
-# EXPERIMENT. Need to use is different ways, ask people for input, and ideas. Need to work for most (sane) cases, and be simply, easy to use. But with enough malleability.
+# TESTS. Maybe do some tests before making the release. Also need to be stress tested a bit. Need to use in different ways.
+# COMMUNE. Ask people for input, and ideas. Need to work for most (sane) cases, and be simply, easy to use. But with enough malleability.
 
 name: APWorld Release
 
