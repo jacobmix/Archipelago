@@ -115,7 +115,7 @@ jobs:
 
           python -c "import pkg_resources; print('pkg_resources OK')"
 
-          python ModuleUpdate.py --yes
+          python ModuleUpdate.py --yes --force
 
       ####################################################################
       # Read / Create manifest
@@ -366,10 +366,10 @@ jobs:
         env:
           GAME: ${{ steps.world_info.outputs.game }}
         run: |
-          python ModuleUpdate.py --yes
+          python -m pip install --upgrade pip
+          python ModuleUpdate.py --yes --force
 
           python Launcher.py --update_settings
-
           python Launcher.py "Generate Template Options"
 
           python <<'PY'
