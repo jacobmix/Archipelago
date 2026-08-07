@@ -358,6 +358,45 @@ jobs:
           PY
 
       ####################################################################
+      # Run gen & tests
+      ####################################################################
+
+      - name: Run multiworld gen
+        if: github.event.inputs.run_generation == 'true'
+        env:
+          GAME: ${{ steps.world_info.outputs.game }}
+        run: |
+          python Launcher.py --update_settings
+
+          python Launcher.py "Generate Template Options"
+
+          python <<'PY'
+          from pathlib import Path
+          import shutil
+          import os
+
+          templates = Path("Players/Templates")
+          players = Path("Players")
+
+          shutil.copy2(
+              templates / "APQuest.yaml",
+              players / "APQuest Test Base.yaml",
+          )
+
+          shutil.copy2(
+              templates / f"{os.environ['GAME']}.yaml",
+              players / f"{os.environ['GAME']}.yaml",
+          )
+          PY
+
+          python Launcher.py "Generate" -- Players
+
+      - name: Run unit tests
+        if: github.event.inputs.run_tests == 'true'
+        run: |
+          pytest -n auto
+
+      ####################################################################
       # Commit manifest update
       ####################################################################
 
@@ -401,45 +440,6 @@ jobs:
           fi
 
           ls -lh "$APWORLD"
-
-      ####################################################################
-      # Run gen & tests
-      ####################################################################
-
-      - name: Run multiworld gen
-        if: github.event.inputs.run_generation == 'true'
-        env:
-          GAME: ${{ steps.world_info.outputs.game }}
-        run: |
-          python Launcher.py --update_settings
-
-          python Launcher.py "Generate Template Options"
-
-          python <<'PY'
-          from pathlib import Path
-          import shutil
-          import os
-
-          templates = Path("Players/Templates")
-          players = Path("Players")
-
-          shutil.copy2(
-              templates / "APQuest.yaml",
-              players / "APQuest Test Base.yaml",
-          )
-
-          shutil.copy2(
-              templates / f"{os.environ['GAME']}.yaml",
-              players / f"{os.environ['GAME']}.yaml",
-          )
-          PY
-
-          python Launcher.py "Generate" -- Players
-
-      - name: Run unit tests
-        if: github.event.inputs.run_tests == 'true'
-        run: |
-          pytest -n auto
 
       ####################################################################
       # Find previous release for this world
