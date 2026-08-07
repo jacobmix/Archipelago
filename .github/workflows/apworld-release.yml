@@ -18,59 +18,59 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: Branch to build
+        description: "Branch to build"
         required: true
-        default: main
+        default: "main"
 
       world:
-        description: World folder (example: apquest)
+        description: "World folder (example: apquest)"
         required: true
-        default: apquest
+        default: "apquest"
 
       bump:
-        description: Version bump
+        description: "Version bump"
         type: choice
-        default: patch
+        default: "patch"
         options:
-          - patch
-          - minor
-          - major
-          - none
+          - "patch"
+          - "minor"
+          - "major"
+          - "none"
 
       world_version:
-        description: Override world_version (blank = bump)
+        description: "Override world_version (blank = bump)"
         required: false
         default: ""
 
       game:
-        description: Override game
+        description: "Override game"
         required: false
         default: ""
 
       minimum_ap_version:
-        description: Override minimum_ap_version
+        description: "Override minimum_ap_version"
         required: false
         default: ""
 
       maximum_ap_version:
-        description: Override maximum_ap_version
+        description: "Override maximum_ap_version"
         required: false
         default: ""
 
       authors:
-        description: Override authors (comma separated)
+        description: "Override authors (comma separated)"
         required: false
         default: ""
 
       clamp_minimum_ap_version:
-        description: Clamp minimum_ap_version to latest stable AP release
+        description: "Clamp minimum_ap_version to latest stable AP release"
         type: boolean
-        default: true
+        default: "true"
 
       include_changelog:
-        description: Include changelog in release notes
+        description: "Include changelog in release notes"
         type: boolean
-        default: true
+        default: "true"
 
 permissions:
   contents: write
