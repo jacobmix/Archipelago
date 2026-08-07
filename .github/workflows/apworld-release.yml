@@ -106,9 +106,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Upgrade pip
+      - name: Install Archipelago requirements
         run: |
           python -m pip install --upgrade pip
+          python -m pip install "setuptools>=75,<81"
+
+          python -c "import pkg_resources; print('pkg_resources OK')"
+
+          python ModuleUpdate.py --yes
 
       ####################################################################
       # Latest Stable Archipelago Release
@@ -314,7 +319,6 @@ jobs:
         run: |
           python Launcher.py \
             "Build APWorlds" \
-            --yes \
             -- \
             "${{ github.event.inputs.world }}"
 
