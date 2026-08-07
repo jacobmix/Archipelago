@@ -366,6 +366,8 @@ jobs:
         env:
           GAME: ${{ steps.world_info.outputs.game }}
         run: |
+          python ModuleUpdate.py --yes
+
           python Launcher.py --update_settings
 
           python Launcher.py "Generate Template Options"
