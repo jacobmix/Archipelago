@@ -393,6 +393,11 @@ jobs:
 
           python Launcher.py "Generate" -- Players
 
+      - name: Install test dependencies
+        if: github.event.inputs.run_tests == 'true'
+        run: |
+          pip install -r ci-requirements.txt
+
       - name: Run unit tests
         if: github.event.inputs.run_tests == 'true'
         run: |
