@@ -1,8 +1,7 @@
-# TODO:
-# COMMENTS. Mainly how to use custom release notes file, and game name override being needed if no manifest exisists.
-# DEFAULTS. See if theres a way to customize defaults else just recommend people make copies of the workflow with their own defaults for each branch.
-# TESTS. Maybe do some tests before making the release. Also need to be stress tested a bit. Need to use in different ways.
-# COMMUNE. Ask people for input, and ideas. Need to work for most (sane) cases, and be simply, easy to use. But with enough malleability.
+# Workflow to simplify apworld releases.
+# If desiered make a copy with your own defaults or other changes
+# To use own release notes template simply specify the file like "apquest_release_notes.md"
+# You can use {VERSION}, {GAME}, {WORLD}, {REPOSITORY}, {BRANCH}, {DOCS_URL}, {COMPARE_URL}, ect. They'll be replaced.
 
 name: APWorld Release
 
@@ -30,7 +29,7 @@ on:
         default: ""
 
       game:
-        description: "Override game (blank = keep existing)"
+        description: "Override game (blank = keep existing) Note: Required if archipelago.json is missing"
         required: false
         default: ""
 
@@ -63,6 +62,16 @@ on:
         description: "Release notes template (blank = built-in)"
         required: false
         default: ""
+
+      run_generation:
+        description: "Run a multiworld gen before releasing"
+        type: boolean
+        default: false
+
+      run_tests:
+        description: "Run unittests before releasing"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -97,6 +106,7 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
       - name: Install Archipelago requirements
         run: |
@@ -393,6 +403,33 @@ jobs:
           ls -lh "$APWORLD"
 
       ####################################################################
+      # Run gen & tests
+      ####################################################################
+
+      - name: Run multiworld gen
+        if: github.event.inputs.run_generation == 'true'
+        run: |
+          python Launcher.py \
+              "Generate Template Options" \
+              -- \
+              APQuest
+
+          python Launcher.py \
+              "Generate Template Options" \
+              -- \
+              "${{ steps.world_info.outputs.game }}"
+
+          python Launcher.py \
+              "Generate" \
+              -- \
+              Players
+
+      - name: Run unit tests
+        if: github.event.inputs.run_tests == 'true'
+        run: |
+          pytest -n auto
+
+      ####################################################################
       # Find previous release for this world
       ####################################################################
 
@@ -427,6 +464,7 @@ jobs:
       - name: Generate release notes
         env:
           WORLD: ${{ github.event.inputs.world }}
+          GAME: ${{ steps.world_info.outputs.game }}
           VERSION: ${{ steps.manifest.outputs.world_version }}
           INCLUDE_CHANGELOG: ${{ github.event.inputs.include_changelog }}
           NOTES_FILE: ${{ github.event.inputs.release_notes_file }}
@@ -446,7 +484,28 @@ jobs:
           repo = os.environ["REPOSITORY"]
           branch = os.environ["BRANCH"]
 
+          docs_url = (
+              f"https://github.com/{repo}/tree/{branch}/worlds/{world}/docs"
+          )
+
+          compare_url = ""
+          if previous:
+              compare_url = (
+                  f"https://github.com/{repo}/compare/"
+                  f"{previous}...{world}-v{version}"
+              )
+
           notes_file = os.environ["NOTES_FILE"]
+
+          variables = {
+              "{VERSION}": version,
+              "{GAME}": os.environ["GAME"],
+              "{WORLD}": world,
+              "{REPOSITORY}": repo,
+              "{BRANCH}": branch,
+              "{DOCS_URL}": docs_url,
+              "{COMPARE_URL}": compare_url,
+          }
 
           #
           # Load custom template if available
@@ -461,10 +520,10 @@ jobs:
                   template = path.read_text()
 
           if template:
-              notes = template.replace(
-                  "{VERSION}",
-                  version
-              )
+              notes = template
+
+              for key, value in variables.items():
+                  notes = notes.replace(key, value)
 
           else:
               notes = f"""## Installation & Setup
@@ -476,7 +535,7 @@ jobs:
           - Make sure you have all required `.apworld` files, your player YAMLs, and any desired `host.yaml` settings ready before generating. (`server_password` is recommended for admin login.)
           - Click **Generate** to create a multiworld `.zip` in the `output` folder. (The terminal closes automatically if generation succeeds.)
           - Upload the generated `.zip` to https://archipelago.gg/uploads or self-host. (Self-hosting requires port forwarding.)
-          - For detailed setup instructions and game-specific randomizer documentation, see: https://github.com/{repo}/tree/{branch}/worlds/{world}/docs
+          - For detailed setup instructions and game-specific randomizer documentation, see: {docs_url}
           - If you encounter errors, run `ArchipelagoLauncherDebug.exe` (or launch Archipelago from a terminal) and check the `logs` folder.
           - Need help? Join the Archipelago Discord: https://discord.gg/8Z65BR2
 
@@ -526,13 +585,11 @@ jobs:
               else:
                   notes += "- No changes since previous release."
 
-              if previous:
-                  current = f"{world}-v{version}"
-
+              if compare_url:
                   notes += (
                       "\n\n"
-                      f"Full comparison:\n"
-                      f"https://github.com/{repo}/compare/{previous}...{current}"
+                      "Full comparison:\n"
+                      f"{compare_url}"
                   )
 
           Path("release_notes.md").write_text(notes)
