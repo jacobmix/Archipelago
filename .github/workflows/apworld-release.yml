@@ -53,6 +53,11 @@ on:
         type: boolean
         default: true
 
+      include_player_yaml:
+        description: "Include player options yaml in release"
+        type: boolean
+        default: true
+
       include_changelog:
         description: "Include changelog in release notes"
         type: boolean
@@ -453,6 +458,106 @@ jobs:
 
           ls -lh "$APWORLD"
 
+      ######################################################################
+      # Generate player options YAML
+      ######################################################################
+
+      - name: Generate player options YAML
+        if: github.event.inputs.include_player_yaml == 'true'
+        env:
+          GAME: ${{ steps.manifest.outputs.game }}
+          WORLD_VERSION: ${{ steps.manifest.outputs.world_version }}
+          AP_VERSION: ${{ steps.stable_ap.outputs.version }}
+          WORLD: ${{ github.event.inputs.world }}
+        run: |
+
+          python Launcher.py --update_settings
+          python Launcher.py "Generate Template Options"
+
+          python <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          game = os.environ["GAME"]
+          world_version = os.environ["WORLD_VERSION"]
+          ap_version = os.environ["AP_VERSION"]
+          world = os.environ["WORLD"]
+
+          template_path = Path("Players/Templates") / f"{game}.yaml"
+
+          if not template_path.exists():
+              raise SystemExit(
+                  f"Expected generated player template at {template_path}"
+              )
+
+          text = template_path.read_text()
+
+          # Replace only the Archipelago version in requires.version.
+          text, count = re.subn(
+              r"(?m)^(\s+version:\s*)[^#\r\n]+",
+              rf"\g<1>{ap_version}",
+              text,
+              count=1,
+          )
+
+          if count != 1:
+              raise SystemExit(
+                  "Could not find requires.version in generated player template"
+              )
+
+          # Replace only the world version underneath requires.game.
+          #
+          # The generated template normally looks like:
+          #
+          # requires:
+          #   version: 0.6.8
+          #   game:
+          #     APQuest: 2.0.0
+          #
+          # Restrict the replacement to the requires.game section so that
+          # another occurrence of the game name elsewhere isn't modified.
+          requires_match = re.search(
+              r"(?ms)^requires:\s*\n(.*?)(?=^[^\s]|\Z)",
+              text,
+          )
+
+          if not requires_match:
+              raise SystemExit(
+                  "Could not find requires section in generated player template"
+              )
+
+          requires = requires_match.group(0)
+
+          game_pattern = rf"(?m)^(\s+{re.escape(game)}:\s*)[^#\r\n]+"
+
+          requires_new, count = re.subn(
+              game_pattern,
+              rf"\g<1>{world_version}",
+              requires,
+              count=1,
+          )
+
+          if count != 1:
+              raise SystemExit(
+                  f"Could not find requires.game.{game} in generated player template"
+              )
+
+          text = (
+              text[:requires_match.start()]
+              + requires_new
+              + text[requires_match.end():]
+          )
+
+          output_path = Path(f"{world}.yaml")
+          output_path.write_text(text)
+
+          print(f"Generated release player template: {output_path}")
+          print()
+          print(text)
+
+          PY
+
       ####################################################################
       # Find previous release for this world
       ####################################################################
@@ -656,6 +761,19 @@ jobs:
       # Create GitHub Release
       ####################################################################
 
+      - name: Prepare release files
+        env:
+          INCLUDE_PLAYER_YAML: ${{ github.event.inputs.include_player_yaml }}
+          WORLD: ${{ github.event.inputs.world }}
+        run: |
+          mkdir -p release_files
+
+          cp "build/apworlds/${WORLD}.apworld" release_files/
+
+          if [ "$INCLUDE_PLAYER_YAML" = "true" ]; then
+            cp "${WORLD}.yaml" "release_files/${WORLD}.yaml"
+          fi
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
@@ -663,8 +781,7 @@ jobs:
           name: "${{ steps.world_info.outputs.game }} APWorld release v${{ steps.manifest.outputs.world_version }}"
           body_path: release_notes.md
           files: |
-            build/apworlds/${{ github.event.inputs.world }}.apworld
-
+            release_files/*
 
       ####################################################################
       # Cleanup on failure
