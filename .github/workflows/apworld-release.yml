@@ -1,9 +1,3 @@
-# NOTE:
-# This workflow is intentionally self-contained.
-# It assumes:
-#   - Your APWorld lives in worlds/<world>/
-#   - It has an archipelago.json
-
 name: APWorld Release
 
 on:
@@ -108,6 +102,70 @@ jobs:
           python ModuleUpdate.py --yes
 
       ####################################################################
+      # Read / Create manifest
+      ####################################################################
+
+      - name: Read or create APWorld manifest
+        id: world_info
+        env:
+          WORLD: ${{ github.event.inputs.world }}
+          GAME_OVERRIDE: ${{ github.event.inputs.game }}
+        run: |
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          world = os.environ["WORLD"]
+          game_override = os.environ["GAME_OVERRIDE"]
+
+          manifest_path = Path(f"worlds/{world}/archipelago.json")
+
+          if manifest_path.exists():
+              print(f"Found manifest: {manifest_path}")
+
+              with open(manifest_path) as f:
+                  manifest = json.load(f)
+
+              if "game" not in manifest:
+                  raise SystemExit(
+                      f"{manifest_path} exists but has no 'game' field"
+                  )
+
+              game = manifest["game"]
+
+          else:
+              print("No archipelago.json found")
+
+              if not game_override:
+                  raise SystemExit(
+                      "No archipelago.json found and no game override supplied. "
+                      "Please provide the game input."
+                  )
+
+              print(f"Creating manifest using override: {game_override}")
+
+              game = game_override
+
+              manifest = {
+                  "game": game,
+                  "world_version": "0.0.0"
+              }
+
+              manifest_path.write_text(
+                  json.dumps(manifest, indent=4) + "\n"
+              )
+
+              print(f"Created {manifest_path}")
+
+          print(f"Using APWorld game name: {game}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              print(f"game={game}", file=f)
+
+          PY
+
+      ####################################################################
       # Latest Stable Archipelago Release
       ####################################################################
 
@@ -139,7 +197,7 @@ jobs:
           PY
 
       ####################################################################
-      # Read / Update archipelago.json
+      # Update manifest
       ####################################################################
 
       - name: Update manifest
@@ -300,30 +358,6 @@ jobs:
 
           git commit \
             -m "Release ${{ github.event.inputs.world }} v${{ steps.manifest.outputs.world_version }}"
-
-      ####################################################################
-      # Get APWorld game name from archipelago.json
-      ####################################################################
-
-      - name: Read APWorld game name
-        id: world_info
-        env:
-          WORLD: ${{ github.event.inputs.world }}
-        run: |
-          python <<'PY'
-          import json
-          import os
-
-          path = f"worlds/{os.environ['WORLD']}/archipelago.json"
-
-          with open(path) as f:
-              data = json.load(f)
-
-          print(f"Game: {data['game']}")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              print(f"game={data['game']}", file=f)
-          PY
 
       ####################################################################
       # Build APWorld
