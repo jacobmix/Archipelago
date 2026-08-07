@@ -399,6 +399,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r ci-requirements.txt
           python ModuleUpdate.py --yes --force --append "WebHostLib/requirements.txt"
+          pip install -r requirements.txt --force-reinstall
           python Launcher.py --update_settings
 
       - name: Run unit tests
