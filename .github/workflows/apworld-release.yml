@@ -70,10 +70,14 @@ on:
       release_notes_file:
         description: "Release notes template (blank = built-in)"
         required: false
-        default: "apworld_release_notes.md"
+        default: ""
 
 permissions:
   contents: write
+
+concurrency:
+  group: apworld-release-${{ github.event.inputs.world }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -104,7 +108,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
 
       ####################################################################
@@ -301,8 +305,6 @@ jobs:
           git commit \
             -m "Release ${{ github.event.inputs.world }} v${{ steps.manifest.outputs.world_version }}"
 
-          git push
-
       ####################################################################
       # Build APWorld
       ####################################################################
@@ -311,6 +313,7 @@ jobs:
         run: |
 
           python Launcher.py \
+            --yes \
             "Build APWorlds" \
             -- \
             "${{ github.event.inputs.world }}"
@@ -480,6 +483,15 @@ jobs:
 
 
       ####################################################################
+      # Push
+      ####################################################################
+
+      - name: Push release commit
+        run: |
+          git push origin HEAD
+
+
+      ####################################################################
       # Create tag
       ####################################################################
 
@@ -513,3 +525,16 @@ jobs:
           body_path: release_notes.md
           files: |
             build/apworlds/${{ github.event.inputs.world }}.apworld
+
+
+      ####################################################################
+      # Cleanup on failure
+      ####################################################################
+
+      - name: Cleanup on failure
+        if: failure()
+        run: |
+          echo "Cleaning failed workflow changes"
+
+          git reset --hard HEAD
+          git clean -fd
