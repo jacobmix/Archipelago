@@ -310,17 +310,39 @@ jobs:
             -m "Release ${{ github.event.inputs.world }} v${{ steps.manifest.outputs.world_version }}"
 
       ####################################################################
+      # Get APWorld game name from archipelago.json
+      ####################################################################
+
+      - name: Read APWorld game name
+        id: world_info
+        env:
+          WORLD: ${{ github.event.inputs.world }}
+        run: |
+          python <<'PY'
+          import json
+          import os
+
+          path = f"worlds/{os.environ['WORLD']}/archipelago.json"
+
+          with open(path) as f:
+              data = json.load(f)
+
+          print(f"Game: {data['game']}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              print(f"game={data['game']}", file=f)
+          PY
+
+      ####################################################################
       # Build APWorld
       ####################################################################
 
       - name: Build APWorld
-        env:
-          SKIP_REQUIREMENTS_UPDATE: "false"
         run: |
           python Launcher.py \
             "Build APWorlds" \
             -- \
-            "${{ github.event.inputs.world }}"
+            "${{ steps.world_info.outputs.game }}"
 
       ####################################################################
       # Verify output
@@ -525,7 +547,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: "${{ github.event.inputs.world }} APWorld release v${{ steps.manifest.outputs.world_version }}"
+          name: "${{ steps.world_info.outputs.game }} APWorld release v${{ steps.manifest.outputs.world_version }}"
           body_path: release_notes.md
           files: |
             build/apworlds/${{ github.event.inputs.world }}.apworld
