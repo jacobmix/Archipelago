@@ -3,14 +3,6 @@
 # It assumes:
 #   - Your APWorld lives in worlds/<world>/
 #   - It has an archipelago.json
-#   - Launcher.py "Build APWorlds" outputs to build/apworlds/
-#
-# Requires:
-#   permissions:
-#     contents: write
-#
-# Tested target:
-#   Archipelago source checkout
 
 name: APWorld Release
 
