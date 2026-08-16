@@ -31,6 +31,44 @@
 #
 #
 # ============================================================================
+# CUSTOMIZING THE WORKFLOW
+# ============================================================================
+#
+# You are free to modify this workflow for your own repository.
+#
+# In particular, you may change the default values of the release options
+# to match your preferred workflow.
+#
+# For example, you may change:
+#
+#   - Default version bump
+#   - Whether minimum_ap_version is clamped
+#   - Whether player YAML files are included
+#   - Whether changelogs are included
+#   - Whether releases are marked as pre-releases
+#   - Whether multiworld generation is run before release
+#   - Whether unit tests are enabled
+#   - Python version
+#
+# You may also modify the workflow itself if you need additional validation,
+# build steps, tests, release files, or repository-specific behavior.
+#
+# The defaults are intended to be sensible starting points, not requirements.
+#
+# The important convention used by this workflow is:
+#
+#   Branch name = world folder name
+#
+# For example:
+#
+#   Branch: apquest
+#   Folder: worlds/apquest
+#
+# If you change this convention, the workflow's validation and path handling
+# will also need to be changed accordingly.
+#
+#
+# ============================================================================
 # RELEASING A WORLD
 # ============================================================================
 #
@@ -42,26 +80,23 @@
 #   4. Click "Run workflow".
 #   5. Select the world branch under "Branch".
 #      Example: apquest
-#   6. Set "World folder" to the same value.
-#      Example: apquest
-#   7. Select the desired release options.
-#   8. Click "Run workflow".
+#   6. Select the desired release options.
+#   7. Click "Run workflow".
 #
 # IMPORTANT:
 #
 #   The workflow must be run from the world branch.
-#   The world input must match the branch name.
-#   This workflow must NEVER be run from main.
+#   The branch name determines the world folder.
+#   This workflow must NEVER, and will NEVER be run from main.
 #
 # Example:
 #
 #   Branch: apquest
-#   World:  apquest
 #
 # The workflow will:
 #
 #   - Check out the selected world branch.
-#   - Verify that the branch and world name match.
+#   - Use the branch name as the world name.
 #   - Verify that worlds/<world> exists.
 #   - Set up Python and Archipelago's requirements.
 #   - Read or create worlds/<world>/archipelago.json.
@@ -391,7 +426,6 @@
 #
 #    GitHub -> Actions -> APWorld Release -> Run workflow
 #    Select the world branch.
-#    Set "World folder" to the same name.
 #
 # ============================================================================
 
@@ -400,11 +434,6 @@ name: APWorld Release
 on:
   workflow_dispatch:
     inputs:
-      world:
-        description: "World folder (example: apquest)"
-        required: true
-        default: "apquest"
-
       bump:
         description: "Version bump"
         type: choice
@@ -503,26 +532,19 @@ jobs:
 
       - name: Verify world branch
         env:
-          WORLD: ${{ inputs.world }}
-          BRANCH: ${{ github.ref_name }}
+          WORLD: ${{ github.ref_name }}
         run: |
-          echo "Branch: $BRANCH"
+          echo "Branch: $WORLD"
           echo "World:  $WORLD"
 
-          if [ "$BRANCH" = "main" ]; then
+          if [ "$WORLD" = "main" ]; then
             echo "::error::Releases must not be run from main."
-            exit 1
-          fi
-
-          if [ "$BRANCH" != "$WORLD" ]; then
-            echo "::error::World '$WORLD' does not match branch '$BRANCH'."
-            echo "::error::Select the '$WORLD' branch when running this workflow."
             exit 1
           fi
 
       - name: Validate world name
         env:
-          WORLD: ${{ inputs.world }}
+          WORLD: ${{ github.ref_name }}
         run: |
           if [[ ! "$WORLD" =~ ^[A-Za-z0-9_-]+$ ]]; then
             echo "::error::Invalid world name: $WORLD"
@@ -531,7 +553,7 @@ jobs:
 
       - name: Verify world
         env:
-          WORLD: ${{ inputs.world }}
+          WORLD: ${{ github.ref_name }}
         run: |
           WORLD_DIR="worlds/$WORLD"
 
@@ -574,7 +596,7 @@ jobs:
       - name: Read or create APWorld manifest
         id: world_info
         env:
-          WORLD: ${{ inputs.world }}
+          WORLD: ${{ github.ref_name }}
           GAME_OVERRIDE: ${{ inputs.game }}
         run: |
           python <<'PY'
@@ -674,7 +696,7 @@ jobs:
       - name: Update manifest
         id: manifest
         env:
-          WORLD: ${{ inputs.world }}
+          WORLD: ${{ github.ref_name }}
           BUMP: ${{ inputs.bump }}
           OVERRIDE_VERSION: ${{ inputs.world_version }}
           GAME: ${{ inputs.game }}
@@ -820,7 +842,7 @@ jobs:
         if: inputs.run_generation == 'true' || inputs.include_player_yaml == 'true'
         env:
           GAME: ${{ steps.manifest.outputs.game }}
-          WORLD: ${{ inputs.world }}
+          WORLD: ${{ github.ref_name }}
           WORLD_VERSION: ${{ steps.manifest.outputs.world_version }}
           AP_VERSION: ${{ steps.stable_ap.outputs.version }}
           INCLUDE_PLAYER_YAML: ${{ inputs.include_player_yaml }}
@@ -986,7 +1008,7 @@ jobs:
       - name: Verify APWorld exists
         run: |
 
-          APWORLD="build/apworlds/${{ inputs.world }}.apworld"
+          APWORLD="build/apworlds/${{ github.ref_name }}.apworld"
 
           if [ ! -f "$APWORLD" ]; then
             echo "::error::Expected $APWORLD"
@@ -1003,7 +1025,7 @@ jobs:
         id: previous_release
         env:
           GH_TOKEN: ${{ github.token }}
-          WORLD: ${{ inputs.world }}
+          WORLD: ${{ github.ref_name }}
         run: |
 
           TAG=$(gh release list \
@@ -1028,7 +1050,7 @@ jobs:
 
       - name: Generate release notes
         env:
-          WORLD: ${{ inputs.world }}
+          WORLD: ${{ github.ref_name }}
           GAME: ${{ steps.world_info.outputs.game }}
           VERSION: ${{ steps.manifest.outputs.world_version }}
           INCLUDE_CHANGELOG: ${{ inputs.include_changelog }}
@@ -1172,12 +1194,12 @@ jobs:
           git config user.email "github-actions@github.com"
 
           git add \
-            worlds/${{ inputs.world }}/archipelago.json
+            worlds/${{ github.ref_name }}/archipelago.json
 
           git diff --cached --quiet && exit 0
 
           git commit \
-            -m "Release ${{ inputs.world }} v${{ steps.manifest.outputs.world_version }}"
+            -m "Release ${{ github.ref_name }} v${{ steps.manifest.outputs.world_version }}"
 
       ####################################################################
       # Push
@@ -1196,7 +1218,7 @@ jobs:
       - name: Create release tag
         id: tag
         env:
-          WORLD: ${{ inputs.world }}
+          WORLD: ${{ github.ref_name }}
           VERSION: ${{ steps.manifest.outputs.world_version }}
         run: |
 
@@ -1217,7 +1239,7 @@ jobs:
       - name: Prepare release files
         env:
           INCLUDE_PLAYER_YAML: ${{ inputs.include_player_yaml }}
-          WORLD: ${{ inputs.world }}
+          WORLD: ${{ github.ref_name }}
         run: |
           mkdir -p release_files
 
