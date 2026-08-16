@@ -1,0 +1,1167 @@
+# APWorld Release Workflow
+#
+# ============================================================================
+# OVERVIEW
+# ============================================================================
+#
+# This workflow builds and releases an Archipelago world (APWorld).
+# APQuest will be used as the main example.
+#
+# Each world is kept on its own Git branch. The branch contains a normal
+# Archipelago repository plus the world's folder:
+#
+#   main
+#     Official Archipelago only.
+#
+#   apquest
+#     Archipelago + worlds/apquest
+#
+#   <other world>
+#     Archipelago + worlds/<other world>
+#
+# The world branch should be named exactly the same as its world folder.
+#
+# Example:
+#
+#   Branch: apquest
+#   Folder: worlds/apquest
+#
+# This keeps each world isolated while allowing the branch to contain the
+# version of Archipelago that the world is currently based on.
+#
+#
+# ============================================================================
+# RELEASING A WORLD
+# ============================================================================
+#
+# To release a world:
+#
+#   1. Open your GitHub repository.
+#   2. Go to Actions.
+#   3. Select "APWorld Release".
+#   4. Click "Run workflow".
+#   5. Select the world branch under "Branch".
+#      Example: apquest
+#   6. Set "World folder" to the same value.
+#      Example: apquest
+#   7. Select the desired release options.
+#   8. Click "Run workflow".
+#
+# IMPORTANT:
+#
+#   The workflow must be run from the world branch.
+#   The world input must match the branch name.
+#   This workflow must NEVER be run from main.
+#
+# Example:
+#
+#   Branch: apquest
+#   World:  apquest
+#
+# The workflow will:
+#
+#   - Check out the selected world branch.
+#   - Verify that the branch and world name match.
+#   - Verify that worlds/<world> exists.
+#   - Set up Python and Archipelago's requirements.
+#   - Read or create worlds/<world>/archipelago.json.
+#   - Update the world version according to the selected version bump.
+#   - Apply any requested manifest overrides.
+#   - Optionally clamp minimum_ap_version to the latest stable Archipelago
+#     release.
+#   - Optionally generate player templates.
+#   - Optionally run multiworld generation.
+#   - Optionally run unit tests.
+#   - Build worlds/<world> into an APWorld.
+#   - Generate release notes and an optional changelog.
+#   - Commit the updated archipelago.json back to the world branch.
+#   - Push the commit to the branch.
+#   - Create a <world>-v<version> Git tag.
+#   - Create the GitHub release.
+#   - Attach the APWorld and, optionally, the player YAML to the release.
+#
+#
+# ============================================================================
+# RELEASE NOTES TEMPLATES
+# ============================================================================
+#
+# By default, the workflow generates its own release notes.
+#
+# You can provide your own release notes template by setting:
+#
+#   Release notes template: apquest_release_notes.md
+#
+# The file must exist in the repository at the path you specify.
+#
+# The following placeholders can be used in a custom template:
+#
+#   {VERSION}       World version
+#   {GAME}          Archipelago game name
+#   {WORLD}         World folder name
+#   {REPOSITORY}    GitHub repository (owner/repository)
+#   {BRANCH}        World branch name
+#   {DOCS_URL}      Link to worlds/<world>/docs
+#   {COMPARE_URL}   Link comparing the previous release to this release
+#
+# Placeholders are replaced automatically when the release is created.
+# Let me know if more placeholders would be nice or other workflow changes.
+#
+#
+# ============================================================================
+# INITIAL REPOSITORY SETUP
+# ============================================================================
+#
+# These steps only need to be done once when setting up a new development
+# environment.
+#
+# 1. Install GitHub CLI:
+#
+#    https://cli.github.com/
+#
+# 2. Log in:
+#
+#    gh auth login
+#
+#    Follow the prompts to authenticate with GitHub.
+#
+# 3. Make a development folder and enter it:
+#
+#    mkdir Archipelago-dev
+#    cd Archipelago-dev
+#
+# 4. Fork Archipelago and clone your fork:
+#
+#    gh repo fork https://github.com/ArchipelagoMW/Archipelago --clone
+#    cd Archipelago
+#
+# 5. Add the original Archipelago repository as "upstream":
+#
+#    git remote add upstream https://github.com/ArchipelagoMW/Archipelago.git
+#
+# 6. Make sure your local main matches the official Archipelago main:
+#
+#    git fetch upstream
+#    git switch main
+#    git reset --hard upstream/main
+#    git push origin main --force-with-lease
+#
+# At this point:
+#
+#    origin   = your GitHub fork
+#    upstream = official Archipelago repository
+#
+#
+# ============================================================================
+# CREATE A WORLD BRANCH
+# ============================================================================
+#
+# Create one branch per world.
+#
+# Example world: apquest
+#
+# 1. From the Archipelago folder, create the world branch:
+#
+#    git switch -c apquest
+#
+# 2. Add your world:
+#
+#    Archipelago/worlds/apquest/
+#
+# 3. Push the branch to your GitHub fork:
+#
+#    git push -u origin apquest
+#
+# 4. Return to main:
+#
+#    git switch main
+#
+# 5. Create a worktree for the world:
+#
+#    git worktree add ../apquest apquest
+#
+# The resulting folder structure will look like:
+#
+#    Archipelago-dev/
+#    ├── Archipelago/       <- main branch
+#    │
+#    └── apquest/           <- apquest branch/worktree
+#
+# The world should be developed from the "apquest" worktree.
+#
+# You can have multiple world worktrees at the same time:
+#
+#    Archipelago-dev/
+#    ├── Archipelago/       <- main
+#    ├── apquest/           <- apquest
+#    └── otherworld/        <- otherworld
+#
+#
+# ============================================================================
+# UPDATING YOUR WORLD
+# ============================================================================
+#
+# Open a console in the world's worktree, or cd to it.
+#
+# Example:
+#
+#    cd ../apquest
+#
+# Check your changes:
+#
+#    git status
+#
+# Stage your world changes:
+#
+#    git add worlds/apquest
+#
+# Commit:
+#
+#    git commit -m "Improve apquest logic"
+#
+# Push to GitHub:
+#
+#    git push
+#
+# The first push was configured with:
+#
+#    git push -u origin apquest
+#
+# so subsequent pushes can simply use "git push".
+#
+#
+# ============================================================================
+# UPDATING MAIN
+# ============================================================================
+#
+# GitHub can be used to keep your fork's main branch synchronized with the
+# official Archipelago repository.
+#
+# 1. Open your GitHub fork.
+# 2. Use "Sync fork" -> "Update branch" to update your fork's main branch.
+#
+# This updates your fork's main branch. It does not change your separate
+# world branches.
+#
+# 3. Update your local main:
+#
+#    cd Archipelago
+#    git switch main
+#    git pull
+#
+# Your world branches remain unchanged until you intentionally bring the
+# updated main into them.
+#
+#
+# ============================================================================
+# IMPORTANT GIT WORKTREE NOTE
+# ============================================================================
+#
+# Once a branch has been added as a worktree, do not switch to that branch
+# from the original Archipelago folder.
+#
+# For example, after:
+#
+#    git worktree add ../apquest apquest
+#
+# work on the apquest branch from:
+#
+#    ../apquest
+#
+# rather than switching to "apquest" inside the main Archipelago folder.
+#
+#
+# ============================================================================
+# QUICK REFERENCE
+# ============================================================================
+#
+# Initial setup:
+#
+#    gh auth login
+#    mkdir Archipelago-dev
+#    cd Archipelago-dev
+#    gh repo fork https://github.com/ArchipelagoMW/Archipelago --clone
+#    cd Archipelago
+#    git remote add upstream https://github.com/ArchipelagoMW/Archipelago.git
+#
+# Create world:
+#
+#    git switch -c apquest
+#    git push -u origin apquest
+#    git switch main
+#    git worktree add ../apquest apquest
+#
+# Work on world:
+#
+#    cd ../apquest
+#    git status
+#    git add worlds/apquest
+#    git commit -m "Improve apquest logic"
+#    git push
+#
+# Update local main:
+#
+#    cd ../Archipelago
+#    git switch main
+#    git pull
+#
+# Release:
+#
+#    GitHub -> Actions -> APWorld Release -> Run workflow
+#    Select the world branch.
+#    Set "World folder" to the same name.
+#
+# ============================================================================
+
+name: APWorld Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      world:
+        description: "World folder (example: apquest)"
+        required: true
+        default: "apquest"
+
+      bump:
+        description: "Version bump"
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+          - none
+
+      world_version:
+        description: "Override world_version (blank = use bump)"
+        required: false
+        default: ""
+
+      game:
+        description: "Override game (blank = keep existing) Required to create archipelago.json if missing"
+        required: false
+        default: ""
+
+      minimum_ap_version:
+        description: "Override minimum_ap_version (blank = keep existing)"
+        required: false
+        default: ""
+
+      maximum_ap_version:
+        description: "Override maximum_ap_version (blank = keep existing)"
+        required: false
+        default: ""
+
+      authors:
+        description: "Override authors (comma separated)"
+        required: false
+        default: ""
+
+      clamp_minimum_ap_version:
+        description: "Clamp minimum_ap_version to latest stable Archipelago release"
+        type: boolean
+        default: true
+
+      prerelease:
+        description: "Mark the GitHub release as a pre-release"
+        type: boolean
+        default: false
+
+      include_player_yaml:
+        description: "Include player options yaml in release"
+        type: boolean
+        default: true
+
+      include_changelog:
+        description: "Include changelog in release notes"
+        type: boolean
+        default: true
+
+      release_notes_file:
+        description: "Release notes template (blank = built-in)"
+        required: false
+        default: ""
+
+      run_generation:
+        description: "Run a multiworld gen before releasing"
+        type: boolean
+        default: false
+
+      run_tests:
+        description: "Run unittests before releasing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apworld-release-${{ github.repository }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      PYTHON_VERSION: "3.12"
+
+    steps:
+
+      ####################################################################
+      # Checkout
+      ####################################################################
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Verify world branch
+        env:
+          WORLD: ${{ inputs.world }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          echo "Branch: $BRANCH"
+          echo "World:  $WORLD"
+
+          if [ "$BRANCH" = "main" ]; then
+            echo "::error::Releases must not be run from main."
+            exit 1
+          fi
+
+          if [ "$BRANCH" != "$WORLD" ]; then
+            echo "::error::World '$WORLD' does not match branch '$BRANCH'."
+            echo "::error::Select the '$WORLD' branch when running this workflow."
+            exit 1
+          fi
+
+      - name: Validate world name
+        env:
+          WORLD: ${{ inputs.world }}
+        run: |
+          if [[ ! "$WORLD" =~ ^[A-Za-z0-9_-]+$ ]]; then
+            echo "::error::Invalid world name: $WORLD"
+            exit 1
+          fi
+
+      - name: Verify world
+        env:
+          WORLD: ${{ inputs.world }}
+        run: |
+          WORLD_DIR="worlds/$WORLD"
+
+          if [ ! -d "$WORLD_DIR" ]; then
+            echo "::error::World directory does not exist: $WORLD_DIR"
+            exit 1
+          fi
+
+          echo "World directory:"
+          echo "$WORLD_DIR"
+
+          echo
+          echo "World files:"
+          find "$WORLD_DIR" -maxdepth 2 -type f | sort
+
+      ####################################################################
+      # Python
+      ####################################################################
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install Archipelago requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "setuptools>=75,<81"
+
+          python -c "import pkg_resources; print('pkg_resources OK')"
+
+          python ModuleUpdate.py --yes --force
+          python -m pip install --upgrade --force-reinstall typing_extensions==4.15.0
+
+      ####################################################################
+      # Read / Create manifest
+      ####################################################################
+
+      - name: Read or create APWorld manifest
+        id: world_info
+        env:
+          WORLD: ${{ inputs.world }}
+          GAME_OVERRIDE: ${{ inputs.game }}
+        run: |
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          world = os.environ["WORLD"]
+          game_override = os.environ["GAME_OVERRIDE"]
+
+          manifest_path = Path(f"worlds/{world}/archipelago.json")
+
+          if manifest_path.exists():
+              print(f"Found manifest: {manifest_path}")
+
+              with open(manifest_path) as f:
+                  manifest = json.load(f)
+
+              if "game" not in manifest:
+                  if not game_override:
+                      raise SystemExit(
+                          f"{manifest_path} exists but has no 'game' field "
+                          "and no game override was supplied"
+                      )
+
+                  game = game_override
+              else:
+                  game = manifest["game"]
+
+
+          else:
+              print("No archipelago.json found")
+
+              if not game_override:
+                  raise SystemExit(
+                      "No archipelago.json found and no game override supplied. "
+                      "Please provide the game input."
+                  )
+
+              print(f"Creating manifest using override: {game_override}")
+
+              game = game_override
+
+              manifest = {
+                  "game": game,
+                  "world_version": "0.0.0"
+              }
+
+              manifest_path.write_text(
+                  json.dumps(manifest, indent=4) + "\n"
+              )
+
+              print(f"Created {manifest_path}")
+
+          print(f"Using APWorld game name: {game}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              print(f"game={game}", file=f)
+
+          PY
+
+      ####################################################################
+      # Latest Stable Archipelago Release
+      ####################################################################
+
+      - name: Get latest stable Archipelago version
+        id: stable_ap
+        run: |
+
+          python <<'PY'
+          import json
+          import urllib.request
+          import os
+
+          url = "https://api.github.com/repos/ArchipelagoMW/Archipelago/releases"
+
+          with urllib.request.urlopen(url) as r:
+              releases = json.load(r)
+
+          stable = next(
+              r for r in releases
+              if not r["prerelease"]
+          )
+
+          version = stable["tag_name"].removeprefix("v")
+
+          print(f"Latest stable Archipelago: {version}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              print(f"version={version}", file=f)
+          PY
+
+      ####################################################################
+      # Update manifest
+      ####################################################################
+
+      - name: Update manifest
+        id: manifest
+        env:
+          WORLD: ${{ inputs.world }}
+          BUMP: ${{ inputs.bump }}
+          OVERRIDE_VERSION: ${{ inputs.world_version }}
+          GAME: ${{ inputs.game }}
+          MINIMUM: ${{ inputs.minimum_ap_version }}
+          MAXIMUM: ${{ inputs.maximum_ap_version }}
+          AUTHORS: ${{ inputs.authors }}
+          CLAMP: ${{ inputs.clamp_minimum_ap_version }}
+          STABLE_AP: ${{ steps.stable_ap.outputs.version }}
+        run: |
+
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def parse(v):
+              return tuple(map(int, v.split(".")))
+
+          world = os.environ["WORLD"]
+
+          manifest_path = Path(f"worlds/{world}/archipelago.json")
+
+          if not manifest_path.exists():
+              raise SystemExit(f"{manifest_path} not found")
+
+          manifest = json.loads(manifest_path.read_text())
+
+          original = manifest.copy()
+
+          #
+          # world_version
+          #
+
+          if os.environ["OVERRIDE_VERSION"]:
+              manifest["world_version"] = os.environ["OVERRIDE_VERSION"]
+
+          elif os.environ["BUMP"] != "none":
+
+              major, minor, patch = map(
+                  int,
+                  manifest["world_version"].split(".")
+              )
+
+              bump = os.environ["BUMP"]
+
+              if bump == "major":
+                  major += 1
+                  minor = 0
+                  patch = 0
+
+              elif bump == "minor":
+                  minor += 1
+                  patch = 0
+
+              elif bump == "patch":
+                  patch += 1
+
+              manifest["world_version"] = f"{major}.{minor}.{patch}"
+
+          #
+          # overrides
+          #
+
+          if os.environ["GAME"]:
+              manifest["game"] = os.environ["GAME"]
+
+          if os.environ["MINIMUM"]:
+              manifest["minimum_ap_version"] = os.environ["MINIMUM"]
+
+          if os.environ["MAXIMUM"]:
+              manifest["maximum_ap_version"] = os.environ["MAXIMUM"]
+
+          if os.environ["AUTHORS"]:
+              manifest["authors"] = [
+                  a.strip()
+                  for a in os.environ["AUTHORS"].split(",")
+                  if a.strip()
+              ]
+
+          #
+          # clamp minimum AP version
+          #
+
+          if (
+              os.environ["CLAMP"] == "true"
+              and "minimum_ap_version" in manifest
+          ):
+              stable = os.environ["STABLE_AP"]
+
+              if parse(manifest["minimum_ap_version"]) > parse(stable):
+                  manifest["minimum_ap_version"] = stable
+
+          #
+          # save
+          #
+
+          manifest_path.write_text(
+              json.dumps(manifest, indent=4) + "\n"
+          )
+
+          #
+          # summary
+          #
+
+          print("")
+          print("Manifest changes")
+          print("=" * 60)
+
+          for key in (
+              "game",
+              "world_version",
+              "minimum_ap_version",
+              "maximum_ap_version",
+              "authors",
+          ):
+              old = original.get(key, "<unset>")
+              new = manifest.get(key, "<unset>")
+
+              if old != new:
+                  print(f"{key}:")
+                  print(f"  {old}")
+                  print(f"  -> {new}")
+              else:
+                  print(f"{key}: unchanged")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              print(
+                  f"world_version={manifest['world_version']}",
+                  file=f
+              )
+              print(
+                  f"game={manifest['game']}",
+                  file=f
+              )
+
+          PY
+
+      ####################################################################
+      # Generate player templates
+      ####################################################################
+
+      - name: Generate player templates
+        if: inputs.run_generation == 'true' || inputs.include_player_yaml == 'true'
+        env:
+          GAME: ${{ steps.manifest.outputs.game }}
+          WORLD: ${{ inputs.world }}
+          WORLD_VERSION: ${{ steps.manifest.outputs.world_version }}
+          AP_VERSION: ${{ steps.stable_ap.outputs.version }}
+          INCLUDE_PLAYER_YAML: ${{ inputs.include_player_yaml }}
+          RUN_GENERATION: ${{ inputs.run_generation }}
+        run: |
+
+          python Launcher.py --update_settings
+          python Launcher.py "Generate Template Options"
+
+          python <<'PY'
+          import os
+          import re
+          import shutil
+          from pathlib import Path
+
+          game = os.environ["GAME"]
+          world = os.environ["WORLD"]
+          world_version = os.environ["WORLD_VERSION"]
+          ap_version = os.environ["AP_VERSION"]
+
+          include_player_yaml = os.environ["INCLUDE_PLAYER_YAML"] == "true"
+          run_generation = os.environ["RUN_GENERATION"] == "true"
+
+          templates = Path("Players/Templates")
+          players = Path("Players")
+
+          game_template = templates / f"{game}.yaml"
+
+          if not game_template.exists():
+              raise SystemExit(
+                  f"Expected generated player template at {game_template}"
+              )
+
+          # --------------------------------------------------------------
+          # Prepare template for multiworld generation
+          # --------------------------------------------------------------
+
+          if run_generation:
+              shutil.copy2(
+                  templates / "APQuest.yaml",
+                  players / "APQuest Test Base.yaml",
+              )
+
+              shutil.copy2(
+                  game_template,
+                  players / f"{game}.yaml",
+              )
+
+          # --------------------------------------------------------------
+          # Prepare release player YAML
+          # --------------------------------------------------------------
+
+          if include_player_yaml:
+              text = game_template.read_text()
+
+              # Replace only requires.version.
+              text, count = re.subn(
+                  r"(?m)^(\s+version:\s*)[^#\r\n]+",
+                  rf"\g<1>{ap_version}",
+                  text,
+                  count=1,
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      "Could not find requires.version in generated "
+                      "player template"
+                  )
+
+              # Extract only the requires section.
+              requires_match = re.search(
+                  r"(?ms)^requires:\s*\n(.*?)(?=^[^\s]|\Z)",
+                  text,
+              )
+
+              if not requires_match:
+                  raise SystemExit(
+                      "Could not find requires section in generated "
+                      "player template"
+                  )
+
+              requires = requires_match.group(0)
+
+              # Replace only requires.game.<GAME>.
+              game_pattern = (
+                  rf"(?m)^(\s+{re.escape(game)}:\s*)[^#\r\n]+"
+              )
+
+              requires_new, count = re.subn(
+                  game_pattern,
+                  rf"\g<1>{world_version}",
+                  requires,
+                  count=1,
+              )
+
+              if count != 1:
+                  raise SystemExit(
+                      f"Could not find requires.game.{game} in generated "
+                      "player template"
+                  )
+
+              text = (
+                  text[:requires_match.start()]
+                  + requires_new
+                  + text[requires_match.end():]
+              )
+
+              output_path = Path(f"{world}.yaml")
+              output_path.write_text(text)
+
+              print(f"Generated release player template: {output_path}")
+              print()
+              print(text)
+
+          PY
+
+      ####################################################################
+      # Run multiworld gen
+      ####################################################################
+
+      - name: Run multiworld gen
+        if: inputs.run_generation == 'true'
+        run: |
+          python Launcher.py "Generate"
+
+      ####################################################################
+      # Unit tests
+      ####################################################################
+
+      # Unit tests currently have failures. So never enable it.
+      # High chance there's requirements conflict as well.
+
+      - name: Install test dependencies
+        if: inputs.run_tests == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "setuptools>=75,<81"
+          pip install -r ci-requirements.txt
+          python ModuleUpdate.py --yes --force --append "WebHostLib/requirements.txt"
+          python -m pip install --upgrade --force-reinstall typing_extensions==4.15.0
+          python Launcher.py --update_settings
+
+      - name: Run unit tests
+        if: inputs.run_tests == 'true'
+        run: |
+          pytest -n auto
+
+      ####################################################################
+      # Build APWorld
+      ####################################################################
+
+      - name: Build APWorld
+        run: |
+          python Launcher.py \
+            "Build APWorlds" \
+            -- \
+            "${{ steps.world_info.outputs.game }}"
+
+      ####################################################################
+      # Verify output
+      ####################################################################
+
+      - name: Verify APWorld exists
+        run: |
+
+          APWORLD="build/apworlds/${{ inputs.world }}.apworld"
+
+          if [ ! -f "$APWORLD" ]; then
+            echo "::error::Expected $APWORLD"
+            exit 1
+          fi
+
+          ls -lh "$APWORLD"
+
+      ####################################################################
+      # Find previous release for this world
+      ####################################################################
+
+      - name: Find previous release
+        id: previous_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORLD: ${{ inputs.world }}
+        run: |
+
+          TAG=$(gh release list \
+            --limit 200 \
+            --json tagName,isDraft,isPrerelease \
+            --jq "
+              .[]
+              | select(.isDraft == false)
+              | select(.isPrerelease == false)
+              | select(.tagName | startswith(\"${WORLD}-v\"))
+              | .tagName
+            " \
+            | head -n1)
+
+          echo "Previous release: ${TAG:-none}"
+
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      ####################################################################
+      # Generate release notes
+      ####################################################################
+
+      - name: Generate release notes
+        env:
+          WORLD: ${{ inputs.world }}
+          GAME: ${{ steps.world_info.outputs.game }}
+          VERSION: ${{ steps.manifest.outputs.world_version }}
+          INCLUDE_CHANGELOG: ${{ inputs.include_changelog }}
+          NOTES_FILE: ${{ inputs.release_notes_file }}
+          PREVIOUS_TAG: ${{ steps.previous_release.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+
+          python <<'PY'
+          import os
+          import subprocess
+          from pathlib import Path
+
+          world = os.environ["WORLD"]
+          version = os.environ["VERSION"]
+          previous = os.environ["PREVIOUS_TAG"]
+          repo = os.environ["REPOSITORY"]
+          branch = os.environ["BRANCH"]
+
+          docs_url = (
+              f"https://github.com/{repo}/tree/{branch}/worlds/{world}/docs"
+          )
+
+          compare_url = ""
+          if previous:
+              compare_url = (
+                  f"https://github.com/{repo}/compare/"
+                  f"{previous}...{world}-v{version}"
+              )
+
+          notes_file = os.environ["NOTES_FILE"]
+
+          variables = {
+              "{VERSION}": version,
+              "{GAME}": os.environ["GAME"],
+              "{WORLD}": world,
+              "{REPOSITORY}": repo,
+              "{BRANCH}": branch,
+              "{DOCS_URL}": docs_url,
+              "{COMPARE_URL}": compare_url,
+          }
+
+          #
+          # Load custom template if available
+          #
+
+          template = None
+
+          if notes_file:
+              path = Path(notes_file)
+
+              if path.exists():
+                  template = path.read_text()
+
+          if template:
+              notes = template
+
+              for key, value in variables.items():
+                  notes = notes.replace(key, value)
+
+          else:
+              notes = f"""## Installation & Setup
+
+          - Requires [Archipelago Launcher](https://github.com/ArchipelagoMW/Archipelago/releases/latest). (Make sure you're up-to-date).
+          - Download the `.apworld` file below and double-click it to install. After the installation confirmation appears, restart Archipelago.
+          - Use **Options Creator** or **Generate Template Options** in the Archipelago Launcher to generate player option YAML files.
+          - Place your edited player option YAMLs in the `Players` folder. (Use **Browse Files...** in the Launcher to open your Archipelago directory.)
+          - Make sure you have all required `.apworld` files, your player YAMLs, and any desired `host.yaml` settings ready before generating. (`server_password` is recommended for admin login.)
+          - Click **Generate** to create a multiworld `.zip` in the `output` folder. (The terminal closes automatically if generation succeeds.)
+          - Upload the generated `.zip` to https://archipelago.gg/uploads or self-host. (Self-hosting requires port forwarding.)
+          - For detailed setup instructions and game-specific randomizer documentation, see: {docs_url}
+          - If you encounter errors, run `ArchipelagoLauncherDebug.exe` (or launch Archipelago from a terminal) and check the `logs` folder.
+          - Need help? Join the Archipelago Discord: https://discord.gg/8Z65BR2
+
+          """
+
+          #
+          # Add changelog
+          #
+
+          if os.environ["INCLUDE_CHANGELOG"] == "true":
+
+              notes += "\n\n## Changelog\n\n"
+
+              if previous:
+
+                  command = [
+                      "git",
+                      "log",
+                      f"{previous}..HEAD",
+                      "--no-merges",
+                      "--pretty=- %s (%h)",
+                      "--",
+                      f"worlds/{world}/"
+                  ]
+
+              else:
+
+                  command = [
+                      "git",
+                      "log",
+                      "--no-merges",
+                      "--pretty=- %s (%h)",
+                      "--",
+                      f"worlds/{world}/"
+                  ]
+
+              result = subprocess.run(
+                  command,
+                  capture_output=True,
+                  text=True
+              )
+
+              changelog = result.stdout.strip()
+
+              if changelog:
+                  notes += changelog
+              else:
+                  notes += "- No changes since previous release."
+
+              if compare_url:
+                  notes += (
+                      "\n\n"
+                      "Full comparison:\n"
+                      f"{compare_url}"
+                  )
+
+          Path("release_notes.md").write_text(notes)
+
+          PY
+
+      ####################################################################
+      # Commit manifest update
+      ####################################################################
+
+      - name: Commit manifest
+        run: |
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add \
+            worlds/${{ inputs.world }}/archipelago.json
+
+          git diff --cached --quiet && exit 0
+
+          git commit \
+            -m "Release ${{ inputs.world }} v${{ steps.manifest.outputs.world_version }}"
+
+      ####################################################################
+      # Push
+      ####################################################################
+
+      - name: Push release commit
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git push origin "HEAD:$BRANCH"
+
+      ####################################################################
+      # Create tag
+      ####################################################################
+
+      - name: Create release tag
+        id: tag
+        env:
+          WORLD: ${{ inputs.world }}
+          VERSION: ${{ steps.manifest.outputs.world_version }}
+        run: |
+
+          TAG="${WORLD}-v${VERSION}"
+
+          echo "Creating tag: $TAG"
+
+          git tag "$TAG"
+
+          git push origin "$TAG"
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      ####################################################################
+      # Create GitHub Release
+      ####################################################################
+
+      - name: Prepare release files
+        env:
+          INCLUDE_PLAYER_YAML: ${{ inputs.include_player_yaml }}
+          WORLD: ${{ inputs.world }}
+        run: |
+          mkdir -p release_files
+
+          cp "build/apworlds/${WORLD}.apworld" release_files/
+
+          if [ "$INCLUDE_PLAYER_YAML" = "true" ]; then
+            cp "${WORLD}.yaml" "release_files/${WORLD}.yaml"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "${{ steps.world_info.outputs.game }} APWorld release v${{ steps.manifest.outputs.world_version }}"
+          body_path: release_notes.md
+          prerelease: ${{ inputs.prerelease }}
+          files: |
+            release_files/*
+
+      ####################################################################
+      # Cleanup on failure
+      ####################################################################
+
+      - name: Cleanup on failure
+        if: failure()
+        run: |
+          echo "Cleaning failed workflow changes"
+
+          git reset --hard HEAD
+          git clean -fd
