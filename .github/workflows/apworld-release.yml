@@ -230,6 +230,82 @@
 #
 #
 # ============================================================================
+# TESTING YOUR APWORLD
+# ============================================================================
+#
+# The world worktree is a complete Archipelago installation containing your
+# world. You can run and test Archipelago directly from this worktree.
+#
+# Example:
+#
+#    Archipelago-dev/
+#    ├── Archipelago/       <- main branch
+#    │
+#    └── apquest/           <- apquest branch/worktree
+#
+# To test apquest:
+#
+# 1. Open a console in the apquest worktree:
+#
+#    cd ../apquest
+#
+#    This should be the folder containing Launcher.py, worlds/, Players/, etc.
+#
+# 2. Your world is already available at:
+#
+#    worlds/apquest/
+#
+# 3. Run Archipelago normally from this folder.
+#
+#    For example:
+#
+#    python Launcher.py
+#
+#    or use the Archipelago launcher/development tools as normal.
+#
+# Any changes you make to worlds/apquest/ are immediately available when
+# running Archipelago from this worktree. You do NOT need to commit or push
+# your changes before testing them.
+#
+# This means you can:
+#
+#    1. Edit your world.
+#    2. Run Archipelago from the world worktree.
+#    3. Test the changes.
+#    4. Make more changes.
+#    5. Repeat.
+#    6. Commit and push when the changes are ready.
+#
+# IMPORTANT:
+#
+#    Test the world from its own worktree, not from the main worktree.
+#
+#    The main worktree:
+#
+#        Archipelago-dev/Archipelago/
+#
+#    contains only the main branch and therefore does not contain your
+#    unmerged world changes.
+#
+#    The world worktree:
+#
+#        Archipelago-dev/apquest/
+#
+#    contains the apquest branch and therefore includes:
+#
+#        worlds/apquest/
+#
+# You can have multiple worlds checked out and tested independently:
+#
+#    Archipelago-dev/
+#    ├── Archipelago/       <- main
+#    ├── apquest/           <- apquest branch
+#    └── otherworld/        <- otherworld branch
+#
+# Run Archipelago from the corresponding worktree when testing that world.
+#
+#
+# ============================================================================
 # UPDATING MAIN
 # ============================================================================
 #
@@ -297,6 +373,13 @@
 #    git add worlds/apquest
 #    git commit -m "Improve apquest logic"
 #    git push
+#
+# Test world:
+#
+#    cd ../apquest
+#    python Launcher.py
+# Edit worlds/apquest/, test, and repeat.
+# Commit/push changes when they're ready.
 #
 # Update local main:
 #
