@@ -87,7 +87,7 @@
 #
 #   The workflow must be run from the world branch.
 #   The branch name determines the world folder.
-#   This workflow must NEVER, and will refuse to be run from main.
+#   This workflow will refuse to & will not run from main.
 #
 # Example:
 #
