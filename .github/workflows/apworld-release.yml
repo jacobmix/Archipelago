@@ -19,7 +19,7 @@
 #   <other world>
 #     Archipelago + worlds/<other world>
 #
-# The world branch should be named exactly the same as its world folder.
+# The world branch MUST be named exactly the same as its world folder.
 #
 # Example:
 #
@@ -87,7 +87,7 @@
 #
 #   The workflow must be run from the world branch.
 #   The branch name determines the world folder.
-#   This workflow must NEVER, and will NEVER be run from main.
+#   This workflow must NEVER, and will refuse to be run from main.
 #
 # Example:
 #
@@ -105,8 +105,10 @@
 #   - Optionally clamp minimum_ap_version to the latest stable Archipelago
 #     release.
 #   - Optionally generate player templates.
-#   - Optionally run multiworld generation.
-#   - Optionally run unit tests.
+#   - Optionally run multiworld generation using the selected world's YAML
+#     together with APQuest as a test world, to verify that the world can
+#     successfully participate in a multiworld generation.
+#   - Optionally run unit tests. (May fail)
 #   - Build worlds/<world> into an APWorld.
 #   - Generate release notes and an optional changelog.
 #   - Commit the updated archipelago.json back to the world branch.
@@ -290,6 +292,9 @@
 #
 #    worlds/apquest/
 #
+# Archipelago loads the world directly from this folder when running from
+# the worktree. No APWorld installation or copying is required for testing.
+#
 # 3. Run Archipelago normally from this folder.
 #
 #    For example:
@@ -339,6 +344,31 @@
 #
 # Run Archipelago from the corresponding worktree when testing that world.
 #
+# IMPORTANT:
+#
+# During development, you are testing the source world directly:
+#
+#    worlds/apquest/
+#
+# You do not need to build or install an .apworld to test normal development
+# changes.
+#
+# An .apworld is simply the packaged version of a world used for distribution.
+# It is just a ZIP archive containing the world folder and its files, such as:
+#
+#    apquest/
+#    ├── __init__.py
+#    ├── archipelago.json
+#    ├── Items.py
+#    ├── Locations.py
+#    └── ...
+#
+# The .apworld is what players install into Archipelago. During development,
+# however, Archipelago can load the world directly from worlds/apquest/, so
+# building an .apworld is not necessary for normal testing.
+#
+# If you want to test the actual packaged .apworld, build it and install that
+# .apworld into a separate Archipelago installation.
 #
 # ============================================================================
 # UPDATING MAIN
@@ -495,12 +525,12 @@ on:
         default: ""
 
       run_generation:
-        description: "Run a multiworld gen before releasing"
+        description: "Run a multiworld generation test using the world and APQuest"
         type: boolean
         default: false
 
       run_tests:
-        description: "Run unittests before releasing"
+        description: "Run unittests before releasing (may fail)"
         type: boolean
         default: false
 
@@ -972,8 +1002,7 @@ jobs:
       # Unit tests
       ####################################################################
 
-      # Unit tests currently have failures. So never enable it.
-      # High chance there's requirements conflict as well.
+      # Unit tests currently have failures.
 
       - name: Install test dependencies
         if: inputs.run_tests == 'true'
