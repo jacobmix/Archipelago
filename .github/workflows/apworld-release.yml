@@ -168,14 +168,52 @@
 #
 # 4. Fork Archipelago and clone your fork:
 #
-#    gh repo fork https://github.com/ArchipelagoMW/Archipelago --clone
-#    cd Archipelago
+#    If you do not already have a fork:
+#
+#      gh repo fork https://github.com/ArchipelagoMW/Archipelago --clone
+#
+#    If you already have a fork:
+#
+#      gh repo clone https://github.com/PATH-TO/REPOSITORY
+#
+#    Then enter the folder containing your fork:
+#
+#      cd Archipelago
+#
+#    If your cloned repository uses a different folder name, use that
+#    folder name instead.
+#
 #
 # 5. Add the original Archipelago repository as "upstream":
 #
 #    git remote add upstream https://github.com/ArchipelagoMW/Archipelago.git
 #
 # 6. Make sure your local main matches the official Archipelago main:
+#
+# IMPORTANT:
+#
+# If your fork already contains custom worlds or other changes on main,
+# back them up before continuing.
+#
+# The setup below resets your local main branch to match the official
+# Archipelago main branch. This is intentional, because main is intended
+# to contain only official Archipelago.
+#
+# For example, you can create a backup branch before resetting:
+#
+#    git switch main
+#    git switch -c backup-before-apworld-setup
+#
+# Push the backup if you want an additional copy on GitHub:
+#
+#    git push -u origin backup-before-apworld-setup
+#
+# Your existing worlds can then be moved into their own world branches
+# after main has been synchronized.
+# (If you don't wanna download whole backup branch you can use
+# something like: https://downgit.github.io/#/home )
+#
+# Match official Archipelago main:
 #
 #    git fetch upstream
 #    git switch main
