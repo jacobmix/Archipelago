@@ -506,6 +506,7 @@
 #
 # Update local main:
 #
+#    On GitHub, "Sync fork" -> "Update branch" to update your fork's main branch.
 #    cd ../Archipelago
 #    git switch main
 #    git pull
