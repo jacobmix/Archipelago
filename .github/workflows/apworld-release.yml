@@ -226,6 +226,26 @@
 #    upstream = official Archipelago repository
 #
 #
+# Note: You need to also install Python. Versions supported are mentioned here:
+# https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/running%20from%20source.md
+# Get the latest of a supported version here: https://www.python.org/downloads/
+# Add to PATH, ect. Once done simply run:
+#
+#     python Launcher.py
+#
+# Launcher should grab everything for you. If not run these commands (may be overkill):
+#
+#     python -m pip install --upgrade pip
+#     python -m pip install "setuptools>=75,<81"
+#     python ModuleUpdate.py --yes --force
+#     python -m pip install --upgrade --force-reinstall typing_extensions==4.15.0
+#     python -m pip install --upgrade pip
+#     python -m pip install "setuptools>=75,<81"
+#     pip install -r ci-requirements.txt
+#     python ModuleUpdate.py --yes --force --append "WebHostLib/requirements.txt"
+#     python -m pip install --upgrade --force-reinstall typing_extensions==4.15.0
+#     python Launcher.py --update_settings
+#
 # ============================================================================
 # CREATE A WORLD BRANCH
 # ============================================================================
