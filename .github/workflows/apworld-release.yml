@@ -625,13 +625,17 @@ jobs:
           mkdir -p "$DESTINATION"
 
           rsync -a \
+            --exclude='.archipelago-build/' \
             --exclude='.git/' \
             --exclude='.github/' \
             --exclude='.gitignore' \
+            --exclude='.idea/' \
             --exclude='release_notes.md' \
+            --exclude='release_files/' \
             --exclude='build/' \
             --exclude='.pytest_cache/' \
             --exclude='__pycache__/' \
+            --exclude='*.pyc' \
             "$SOURCE_DIR/" \
             "$DESTINATION/"
 
