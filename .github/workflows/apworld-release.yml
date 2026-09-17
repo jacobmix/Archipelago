@@ -270,23 +270,9 @@ jobs:
       - name: Prepare local build environment
         if: inputs.build_environment == 'local'
         id: build
-        env:
-          WORLD: ${{ steps.world.outputs.world }}
         run: |
           echo "Using current repository as the Archipelago build environment."
-
           echo "build_root=." >> "$GITHUB_OUTPUT"
-
-          python - <<'PY'
-          import os
-
-          from Utils import __version__
-
-          print(f"Archipelago build version: {__version__}")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              print(f"version={__version__}", file=f)
-          PY
 
       - name: Prepare latest-release Archipelago environment
         if: inputs.build_environment == 'latest'
@@ -309,54 +295,24 @@ jobs:
 
           echo "build_root=.archipelago-build" >> "$GITHUB_OUTPUT"
 
-          (
-            cd .archipelago-build
-
-            python - <<'PY'
-          import os
-
-          from Utils import __version__
-
-          print(f"Archipelago build version: {__version__}")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              print(f"version={__version__}", file=f)
-          PY
-          )
-
       - name: Prepare main Archipelago environment
         if: inputs.build_environment == 'main'
         id: build_main
         run: |
           rm -rf .archipelago-build
-
+      
           echo "Cloning Archipelago main."
-
+      
           git clone \
             --depth 1 \
             --branch main \
             https://github.com/ArchipelagoMW/Archipelago.git \
             .archipelago-build
-
+      
           echo "Archipelago revision:"
           git -C .archipelago-build log -1 --oneline
-
+      
           echo "build_root=.archipelago-build" >> "$GITHUB_OUTPUT"
-
-          (
-            cd .archipelago-build
-
-            python - <<'PY'
-          import os
-
-          from Utils import __version__
-
-          print(f"Archipelago build version: {__version__}")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              print(f"version={__version__}", file=f)
-          PY
-          )
 
       ######################################################################
       # Select build root
@@ -369,37 +325,34 @@ jobs:
           LOCAL_BUILD_ROOT: ${{ steps.build.outputs.build_root }}
           RELEASE_BUILD_ROOT: ${{ steps.build_release.outputs.build_root }}
           MAIN_BUILD_ROOT: ${{ steps.build_main.outputs.build_root }}
-          LOCAL_VERSION: ${{ steps.build.outputs.version }}
-          RELEASE_VERSION: ${{ steps.build_release.outputs.version }}
-          MAIN_VERSION: ${{ steps.build_main.outputs.version }}
         run: |
           case "$BUILD_ENVIRONMENT" in
             local)
               BUILD_ROOT="$LOCAL_BUILD_ROOT"
-              BUILD_VERSION="$LOCAL_VERSION"
               ;;
-
-            "latest")
+      
+            latest)
               BUILD_ROOT="$RELEASE_BUILD_ROOT"
-              BUILD_VERSION="$RELEASE_VERSION"
               ;;
-
+      
             main)
               BUILD_ROOT="$MAIN_BUILD_ROOT"
-              BUILD_VERSION="$MAIN_VERSION"
               ;;
-
+      
             *)
               echo "::error::Unknown build environment: $BUILD_ENVIRONMENT"
               exit 1
               ;;
           esac
-
+      
+          if [ -z "$BUILD_ROOT" ]; then
+            echo "::error::Build root was not resolved."
+            exit 1
+          fi
+      
           echo "Build root: $BUILD_ROOT"
-          echo "Archipelago version: $BUILD_VERSION"
-
+      
           echo "build_root=$BUILD_ROOT" >> "$GITHUB_OUTPUT"
-          echo "version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
 
       ######################################################################
       # Python
@@ -421,15 +374,31 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install "setuptools>=75,<81"
-
+      
           python -c "import pkg_resources; print('pkg_resources OK')"
-
+      
           python ModuleUpdate.py --yes --force
-
+      
           python -m pip install \
             --upgrade \
             --force-reinstall \
             typing_extensions==4.15.0
+
+      - name: Read Archipelago version
+        id: ap_version
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          python - <<'PY'
+          import os
+          from Utils import __version__
+      
+          print(f"Archipelago version: {__version__}")
+      
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              print(f"version={__version__}", file=f)
+          PY
 
       ######################################################################
       # Read / create / update manifest
@@ -658,9 +627,11 @@ jobs:
           rsync -a \
             --exclude='.git/' \
             --exclude='.github/' \
+            --exclude='.gitignore' \
             --exclude='release_notes.md' \
             --exclude='build/' \
             --exclude='.pytest_cache/' \
+            --exclude='__pycache__/' \
             "$SOURCE_DIR/" \
             "$DESTINATION/"
 
@@ -703,7 +674,7 @@ jobs:
           GAME: ${{ steps.manifest.outputs.game }}
           WORLD: ${{ steps.world.outputs.world }}
           WORLD_VERSION: ${{ steps.manifest.outputs.world_version }}
-          AP_VERSION: ${{ steps.build_root.outputs.version }}
+          AP_VERSION: ${{ steps.ap_version.outputs.version }}
           INCLUDE_PLAYER_YAML: ${{ inputs.include_player_yaml }}
           RUN_GENERATION: ${{ inputs.run_generation }}
         working-directory: ${{ steps.build_root.outputs.build_root }}
