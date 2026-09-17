@@ -364,8 +364,92 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       ######################################################################
+      # Stage APWorld into selected Archipelago build environment
+      ######################################################################
+
+      - name: Stage APWorld for upstream build
+        if: inputs.build_environment != 'local'
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+          SOURCE_DIR: ${{ steps.world.outputs.source_dir }}
+        run: |
+          DESTINATION="$BUILD_ROOT/worlds/$WORLD"
+
+          echo "Source APWorld : $SOURCE_DIR"
+          echo "Build directory: $DESTINATION"
+
+          rm -rf "$DESTINATION"
+          mkdir -p "$DESTINATION"
+
+          rsync -a \
+            --exclude='.archipelago-build/' \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.gitignore' \
+            --exclude='.idea/' \
+            --exclude='release_notes.md' \
+            --exclude='release_files/' \
+            --exclude='build/' \
+            --exclude='.pytest_cache/' \
+            --exclude='__pycache__/' \
+            --exclude='*.pyc' \
+            "$SOURCE_DIR/" \
+            "$DESTINATION/"
+
+          echo ""
+          echo "Staged APWorld:"
+          find "$DESTINATION" -maxdepth 3 -type f | sort
+
+      - name: Verify local APWorld
+        if: inputs.build_environment == 'local'
+        env:
+          WORLD: ${{ steps.world.outputs.world }}
+          SOURCE_DIR: ${{ steps.world.outputs.source_dir }}
+        run: |
+          EXPECTED="worlds/$WORLD"
+
+          if [ "$SOURCE_DIR" != "$EXPECTED" ]; then
+            echo "::error::Local build mode expects the APWorld at $EXPECTED."
+            echo "::error::Resolved source directory was: $SOURCE_DIR"
+            echo "::error::Use build_environment=local without an override,"
+            echo "::error::or place the APWorld under worlds/$WORLD."
+            exit 1
+          fi
+
+          if [ ! -d "$EXPECTED" ]; then
+            echo "::error::APWorld directory does not exist: $EXPECTED"
+            exit 1
+          fi
+
+          echo "Local APWorld:"
+          find "$EXPECTED" -maxdepth 3 -type f | sort
+
+          grep -RIn --include='requirements.txt' 'platformdirs' . || true
+
+      ######################################################################
       # Install Archipelago requirements
       ######################################################################
+
+      - name: Show world-specific requirements
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          echo "All requirements.txt files in build environment:"
+          find . \
+            -type f \
+            -name requirements.txt \
+            -print \
+            | sort
+
+          echo ""
+          echo "platformdirs requirements:"
+          grep -RIn \
+            --include='requirements.txt' \
+            'platformdirs' \
+            . \
+            || true
 
       - name: Install Archipelago requirements
         env:
@@ -604,68 +688,6 @@ jobs:
                   file=f,
               )
           PY
-
-      ######################################################################
-      # Stage APWorld into selected Archipelago build environment
-      ######################################################################
-
-      - name: Stage APWorld for upstream build
-        if: inputs.build_environment != 'local'
-        env:
-          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-          WORLD: ${{ steps.world.outputs.world }}
-          SOURCE_DIR: ${{ steps.world.outputs.source_dir }}
-        run: |
-          DESTINATION="$BUILD_ROOT/worlds/$WORLD"
-
-          echo "Source APWorld : $SOURCE_DIR"
-          echo "Build directory: $DESTINATION"
-
-          rm -rf "$DESTINATION"
-          mkdir -p "$DESTINATION"
-
-          rsync -a \
-            --exclude='.archipelago-build/' \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            --exclude='.gitignore' \
-            --exclude='.idea/' \
-            --exclude='release_notes.md' \
-            --exclude='release_files/' \
-            --exclude='build/' \
-            --exclude='.pytest_cache/' \
-            --exclude='__pycache__/' \
-            --exclude='*.pyc' \
-            "$SOURCE_DIR/" \
-            "$DESTINATION/"
-
-          echo ""
-          echo "Staged APWorld:"
-          find "$DESTINATION" -maxdepth 3 -type f | sort
-
-      - name: Verify local APWorld
-        if: inputs.build_environment == 'local'
-        env:
-          WORLD: ${{ steps.world.outputs.world }}
-          SOURCE_DIR: ${{ steps.world.outputs.source_dir }}
-        run: |
-          EXPECTED="worlds/$WORLD"
-
-          if [ "$SOURCE_DIR" != "$EXPECTED" ]; then
-            echo "::error::Local build mode expects the APWorld at $EXPECTED."
-            echo "::error::Resolved source directory was: $SOURCE_DIR"
-            echo "::error::Use build_environment=local without an override,"
-            echo "::error::or place the APWorld under worlds/$WORLD."
-            exit 1
-          fi
-
-          if [ ! -d "$EXPECTED" ]; then
-            echo "::error::APWorld directory does not exist: $EXPECTED"
-            exit 1
-          fi
-
-          echo "Local APWorld:"
-          find "$EXPECTED" -maxdepth 3 -type f | sort
 
       ######################################################################
       # Generate player templates
