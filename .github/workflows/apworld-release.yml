@@ -425,8 +425,6 @@ jobs:
           echo "Local APWorld:"
           find "$EXPECTED" -maxdepth 3 -type f | sort
 
-          grep -RIn --include='requirements.txt' 'platformdirs' . || true
-
       ######################################################################
       # Install Archipelago requirements
       ######################################################################
