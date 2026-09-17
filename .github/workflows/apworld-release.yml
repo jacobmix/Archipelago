@@ -1029,6 +1029,11 @@ jobs:
           branch = os.environ["BRANCH"]
           source_dir = os.environ["SOURCE_DIR"]
 
+          print(f"APWorld:       {world}")
+          print(f"Source dir:    {source_dir}")
+          print(f"Branch:        {branch}")
+          print(f"Previous tag:  {previous or 'none'}")
+
           # --------------------------------------------------------------
           # GitHub source/documentation URLs
           # --------------------------------------------------------------
@@ -1061,7 +1066,8 @@ jobs:
           if previous:
               compare_url = (
                   f"https://github.com/{repository}/compare/"
-                  f"{previous}...{world}-v{version}"
+                  f"{quote(previous, safe='')}..."
+                  f"{quote(world + '-v' + version, safe='')}"
               )
 
           # --------------------------------------------------------------
@@ -1131,16 +1137,6 @@ jobs:
                       2,
                       f"{previous}..HEAD",
                   )
-
-              # ------------------------------------------------------------
-              # Limit changelog to APWorld source.
-              #
-              # Full Archipelago:
-              #   worlds/apquest
-              #
-              # Standalone repository:
-              #   repository root, excluding repository-only files.
-              # ------------------------------------------------------------
 
               if source_dir != ".":
                   command.extend([
