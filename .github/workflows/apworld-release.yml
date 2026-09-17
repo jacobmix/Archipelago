@@ -33,7 +33,7 @@ on:
           - "local"
 
       apworld_path:
-        description: "Optional APWorld path relative to the repository root. Example: apworld/no100f. Blank = detect from branch/build mode."
+        description: "Optional APWorld path relative to the repository root. Example: apworld/apquest. Blank = detect from branch/build mode."
         required: false
         default: ""
 
