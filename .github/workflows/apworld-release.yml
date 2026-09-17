@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: "World version bump. Ignored when world_version is provided."
+        description: |
+          World version bump.
+          Ignored when world_version is provided.
         type: choice
         default: patch
         options:
@@ -14,17 +16,25 @@ on:
           - none
 
       world_version:
-        description: "Override world_version. Leave blank to use the selected version bump."
+        description: |
+          Override world_version.
+          Leave blank to use the selected version bump.
         required: false
         default: ""
 
       game:
-        description: "Override game name. Required when archipelago.json is missing or has no game."
+        description: |
+          Override game name.
+          Required when archipelago.json is missing or has no game.
         required: false
         default: ""
 
       build_environment:
-        description: "Archipelago environment used to build the APWorld. 'latest' uses the newest stable tag; 'main' uses upstream main; 'local' uses this repository branch."
+        description: |
+          Archipelago environment used to build the APWorld.
+          latest = newest stable tag.
+          main = upstream main.
+          local = this repository branch.
         type: choice
         default: "latest"
         options:
@@ -33,59 +43,76 @@ on:
           - "local"
 
       apworld_path:
-        description: | 
-          "APWorld source path (optional) Blank = repository root for upstream builds, worlds/<branch> for local builds"
-          "Example: worlds/apquest"
+        description: |
+          APWorld source path, optionally followed by ':APWorldName'
+          If no name is provided, the branch name is used.
+          Blank = repository root for upstream builds, worlds/<branch> for local builds.
+          Example: .:apquest
+          Example: worlds/apquest
         required: false
         default: ""
 
       minimum_ap_version:
-        description: "Override minimum Archipelago version. Leave blank to keep the current value."
+        description: |
+          Override minimum Archipelago version.
+          Leave blank to keep the current value.
         required: false
         default: ""
 
       maximum_ap_version:
-        description: "Override maximum Archipelago version. Leave blank to keep the current value."
+        description: |
+          Override maximum Archipelago version.
+          Leave blank to keep the current value.
         required: false
         default: ""
 
       authors:
-        description: "Override authors as a comma-separated list."
+        description: |
+          Override authors as a comma-separated list.
         required: false
         default: ""
 
       clamp_minimum_ap_version:
-        description: "Clamp minimum_ap_version to the latest stable Archipelago release."
+        description: |
+          Clamp minimum_ap_version to the latest stable Archipelago release.
         type: boolean
         default: true
 
       prerelease:
-        description: "Mark the GitHub release as a pre-release."
+        description: |
+          Mark the GitHub release as a pre-release.
         type: boolean
         default: false
 
       include_player_yaml:
-        description: "Include the generated player options YAML in the GitHub release."
+        description: |
+          Include the generated player options YAML in the GitHub release.
         type: boolean
         default: true
 
       include_changelog:
-        description: "Include changes under the APWorld source directory in the release notes."
+        description: |
+          Include changes under the APWorld source directory in the release notes.
         type: boolean
         default: true
 
       release_notes_file:
-        description: "Optional release notes template path. Blank = use the built-in template."
+        description: |
+          Optional release notes template path.
+          Blank = use the built-in template.
         required: false
         default: ""
 
       run_generation:
-        description: "Run a multiworld generation test using the APWorld and APQuest."
+        description: |
+          Run a multiworld generation test using the APWorld and APQuest.
         type: boolean
         default: false
 
       run_tests:
-        description: "Run the Archipelago unit tests before releasing. Tests may currently fail."
+        description: |
+          Run the Archipelago unit tests before releasing.
+          Tests may currently fail.
         type: boolean
         default: false
 
@@ -159,53 +186,63 @@ jobs:
           branch = os.environ["BRANCH"]
           build_environment = os.environ["BUILD_ENVIRONMENT"]
           override = os.environ["APWORLD_PATH_OVERRIDE"].strip()
-
+          
           # --------------------------------------------------------------
-          # Resolve source directory
+          # Resolve source directory and optional APWorld name
           # --------------------------------------------------------------
-
+          
+          override_name = None
+          
           if override:
-              source_dir = Path(override)
-
+              if ":" in override:
+                  override_path, override_name = override.rsplit(":", 1)
+                  override_path = override_path.strip()
+                  override_name = override_name.strip()
+          
+                  if not override_path:
+                      override_path = "."
+              else:
+                  override_path = override
+          
+              source_dir = Path(override_path)
+          
               # GitHub workflow input paths must stay inside the repository.
               if source_dir.is_absolute():
                   raise SystemExit(
-                      f"APWorld path must be relative to the repository root: {override}"
+                      f"APWorld path must be relative to the repository root: {override_path}"
                   )
-
+          
               normalized_parts = source_dir.parts
-
+          
               if ".." in normalized_parts:
                   raise SystemExit(
-                      f"APWorld path may not contain '..': {override}"
+                      f"APWorld path may not contain '..': {override_path}"
                   )
-
+          
               if str(source_dir) in ("", "."):
                   source_dir = Path(".")
           else:
               if build_environment == "local":
-                  # Full Archipelago repository:
-                  # worlds/<branch>
                   source_dir = Path("worlds") / branch
               else:
-                  # Standalone APWorld repository:
-                  # repository root
                   source_dir = Path(".")
-
+          
           if not source_dir.is_dir():
               raise SystemExit(
                   f"APWorld source directory does not exist: {source_dir}"
               )
-
+          
           # --------------------------------------------------------------
           # Resolve APWorld name
           # --------------------------------------------------------------
-
-          if override and source_dir != Path("."):
+          
+          if override_name:
+              world = override_name
+          elif override and source_dir != Path("."):
               world = source_dir.name
           else:
               world = branch
-
+          
           if not re.fullmatch(r"[A-Za-z0-9_-]+", world):
               raise SystemExit(
                   f"Invalid APWorld name: {world}"
