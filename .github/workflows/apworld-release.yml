@@ -672,7 +672,7 @@ jobs:
       ######################################################################
 
       - name: Generate player templates
-        if: inputs.run_generation == 'true' || inputs.include_player_yaml == 'true'
+        if: ${{ inputs.run_generation || inputs.include_player_yaml }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           GAME: ${{ steps.manifest.outputs.game }}
@@ -818,7 +818,7 @@ jobs:
       ######################################################################
 
       - name: Run multiworld generation
-        if: inputs.run_generation == 'true'
+        if: ${{ inputs.run_generation }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
         working-directory: ${{ steps.build_root.outputs.build_root }}
@@ -832,7 +832,7 @@ jobs:
       # Unit tests currently have known failures.
 
       - name: Install test dependencies
-        if: inputs.run_tests == 'true'
+        if: ${{ inputs.run_tests }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
         working-directory: ${{ steps.build_root.outputs.build_root }}
@@ -859,7 +859,7 @@ jobs:
           python Launcher.py --update_settings
 
       - name: Run unit tests
-        if: inputs.run_tests == 'true'
+        if: ${{ inputs.run_tests }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
         working-directory: ${{ steps.build_root.outputs.build_root }}
@@ -1110,6 +1110,7 @@ jobs:
               notes,
               encoding="utf-8",
           )
+          PY
 
       ######################################################################
       # Commit manifest update
