@@ -35,7 +35,7 @@ on:
       apworld_path:
         description: | 
           "APWorld source path (optional) Blank = repository root for upstream builds, worlds/<branch> for local builds"
-          "Example: apworld/apquest"
+          "Example: worlds/apquest"
         required: false
         default: ""
 
