@@ -798,7 +798,10 @@ jobs:
                   + text[requires_match.end():]
               )
 
-              output_path = Path.cwd().parent / f"{world}.yaml"
+              output_path = (
+                  Path(os.environ["GITHUB_WORKSPACE"])
+                  / f"{world}.yaml"
+              )
 
               output_path.write_text(
                   text,
@@ -973,14 +976,14 @@ jobs:
           # GitHub source/documentation URLs
           # --------------------------------------------------------------
 
-          source_path = source_dir
+          source_path = Path(source_dir)
 
-          if source_path == ".":
+          if source_dir == ".":
               source_url_path = ""
           else:
               source_url_path = "/".join(
                   quote(part)
-                  for part in Path(source_path).parts
+                  for part in source_path.parts
               )
 
           if source_url_path:
@@ -1059,25 +1062,48 @@ jobs:
           if os.environ["INCLUDE_CHANGELOG"] == "true":
               notes += "\n\n## Changelog\n\n"
 
+              command = [
+                  "git",
+                  "log",
+                  "--no-merges",
+                  "--pretty=- %s (%h)",
+              ]
+
               if previous:
-                  command = [
-                      "git",
-                      "log",
+                  command.insert(
+                      2,
                       f"{previous}..HEAD",
-                      "--no-merges",
-                      "--pretty=- %s (%h)",
+                  )
+
+              # ------------------------------------------------------------
+              # Limit changelog to APWorld source.
+              #
+              # Full Archipelago:
+              #   worlds/apquest
+              #
+              # Standalone repository:
+              #   repository root, excluding repository-only files.
+              # ------------------------------------------------------------
+
+              if source_dir != ".":
+                  command.extend([
                       "--",
                       source_dir,
-                  ]
+                  ])
+
               else:
-                  command = [
-                      "git",
-                      "log",
-                      "--no-merges",
-                      "--pretty=- %s (%h)",
+                  command.extend([
                       "--",
-                      source_dir,
-                  ]
+                      ".",
+                      ":(exclude).git/",
+                      ":(exclude).github/",
+                      ":(exclude).idea/",
+                      ":(exclude).archipelago-build/",
+                      ":(exclude)build/",
+                      ":(exclude)release_files/",
+                      ":(exclude)release_notes.md",
+                      ":(exclude).gitignore",
+                  ])
 
               result = subprocess.run(
                   command,
@@ -1088,7 +1114,8 @@ jobs:
 
               if result.returncode != 0:
                   print(
-                      "Warning: git log failed while generating the changelog:"
+                      "Warning: git log failed while generating "
+                      "the changelog:"
                   )
                   print(result.stderr)
 
@@ -1111,6 +1138,77 @@ jobs:
               encoding="utf-8",
           )
           PY
+
+      ######################################################################
+      # Prepare release files
+      ######################################################################
+
+      - name: Prepare release files
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          INCLUDE_PLAYER_YAML: ${{ inputs.include_player_yaml }}
+          WORLD: ${{ steps.world.outputs.world }}
+        run: |
+          mkdir -p release_files
+
+          cp \
+            "$BUILD_ROOT/build/apworlds/${WORLD}.apworld" \
+            "release_files/${WORLD}.apworld"
+
+          if [ "$INCLUDE_PLAYER_YAML" = "true" ]; then
+            if [ ! -f "${WORLD}.yaml" ]; then
+              echo "::error::Expected generated player YAML: ${WORLD}.yaml"
+              exit 1
+            fi
+
+            cp \
+              "${WORLD}.yaml" \
+              "release_files/${WORLD}.yaml"
+          fi
+
+          echo "Release files:"
+          ls -lh release_files
+
+      - name: Validate release artifacts
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+          INCLUDE_PLAYER_YAML: ${{ inputs.include_player_yaml }}
+        run: |
+          APWORLD="$BUILD_ROOT/build/apworlds/${WORLD}.apworld"
+      
+          if [ ! -f "$APWORLD" ]; then
+            echo "::error::Missing APWorld: $APWORLD"
+            exit 1
+          fi
+      
+          if [ "$INCLUDE_PLAYER_YAML" = "true" ] && [ ! -f "${WORLD}.yaml" ]; then
+            echo "::error::Missing player YAML: ${WORLD}.yaml"
+            exit 1
+          fi
+      
+          if [ ! -f release_notes.md ]; then
+            echo "::error::Missing release notes: release_notes.md"
+            exit 1
+          fi
+      
+          echo "All release artifacts are ready."
+
+      - name: Check release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORLD: ${{ steps.world.outputs.world }}
+          VERSION: ${{ steps.manifest.outputs.world_version }}
+        run: |
+          TAG="${WORLD}-v${VERSION}"
+      
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Release tag already exists: $TAG"
+            echo "::error::A previous release attempt may have left the tag behind."
+            exit 1
+          fi
+      
+          echo "Release tag is available: $TAG"
 
       ######################################################################
       # Commit manifest update
@@ -1163,36 +1261,6 @@ jobs:
           git push origin "$TAG"
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      ######################################################################
-      # Prepare release files
-      ######################################################################
-
-      - name: Prepare release files
-        env:
-          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-          INCLUDE_PLAYER_YAML: ${{ inputs.include_player_yaml }}
-          WORLD: ${{ steps.world.outputs.world }}
-        run: |
-          mkdir -p release_files
-
-          cp \
-            "$BUILD_ROOT/build/apworlds/${WORLD}.apworld" \
-            "release_files/${WORLD}.apworld"
-
-          if [ "$INCLUDE_PLAYER_YAML" = "true" ]; then
-            if [ ! -f "${WORLD}.yaml" ]; then
-              echo "::error::Expected generated player YAML: ${WORLD}.yaml"
-              exit 1
-            fi
-
-            cp \
-              "${WORLD}.yaml" \
-              "release_files/${WORLD}.yaml"
-          fi
-
-          echo "Release files:"
-          ls -lh release_files
 
       ######################################################################
       # Create GitHub Release
