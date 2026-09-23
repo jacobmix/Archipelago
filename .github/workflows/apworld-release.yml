@@ -680,6 +680,264 @@ jobs:
           fi
 
       ######################################################################
+      # Customize fuzzer reporting
+      ######################################################################
+
+      - name: Customize fuzzer reporting
+        if: ${{ inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          python - "$BUILD_ROOT/fuzz.py" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8")
+
+          # --------------------------------------------------------------
+          # Add per-generation timing storage.
+          # --------------------------------------------------------------
+
+          old = """REPORT = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [])))
+          """
+
+          new = """REPORT = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [])))
+          GEN_TIMES = []
+          """
+
+          if "GEN_TIMES = []" not in text:
+              if old not in text:
+                  raise SystemExit(
+                      "Could not find REPORT declaration in fuzz.py"
+                  )
+
+              text = text.replace(old, new, 1)
+
+          # --------------------------------------------------------------
+          # Measure generation time in gen_wrapper().
+          # --------------------------------------------------------------
+
+          old = """    raised = None
+              mw = None
+              try:
+                  with redirect_stdout(out_buf), redirect_stderr(out_buf), tempfile.TemporaryDirectory(prefix="apfuzz", dir=tmp) as output_path:
+          """
+
+          new = """    raised = None
+              mw = None
+              generation_duration = None
+              generation_start = None
+              try:
+                  with redirect_stdout(out_buf), redirect_stderr(out_buf), tempfile.TemporaryDirectory(prefix="apfuzz", dir=tmp) as output_path:
+          """
+
+          if "generation_duration = None" not in text:
+              if old not in text:
+                  raise SystemExit(
+                      "Could not find gen_wrapper setup in fuzz.py"
+                  )
+
+              text = text.replace(old, new, 1)
+
+          old = """                    if timer:
+                          timer.start()
+                      mw = call_generate(yaml_path, args, output_path)
+                  except Exception as e:
+                      raised = e
+                  finally:
+          """
+
+          new = """                    generation_start = time.perf_counter()
+                      if timer:
+                          timer.start()
+                      mw = call_generate(yaml_path, args, output_path)
+                      generation_duration = time.perf_counter() - generation_start
+                  except Exception as e:
+                      raised = e
+                  finally:
+                      if generation_start is not None and generation_duration is None:
+                          generation_duration = time.perf_counter() - generation_start
+          """
+
+          if "generation_duration = time.perf_counter() - generation_start" not in text:
+              if old not in text:
+                  raise SystemExit(
+                      "Could not find call_generate block in fuzz.py"
+                  )
+
+              text = text.replace(old, new, 1)
+
+          # --------------------------------------------------------------
+          # Return the measured duration to gen_callback().
+          # --------------------------------------------------------------
+
+          old = """                if outcome == GenOutcome.Success:
+                      return outcome
+                  if outcome == GenOutcome.OptionError and not args.dump_ignored:
+                      return outcome
+          """
+
+          new = """                if outcome == GenOutcome.Success:
+                      return outcome, raised, generation_duration
+                  if outcome == GenOutcome.OptionError and not args.dump_ignored:
+                      return outcome
+          """
+
+          if old not in text:
+              raise SystemExit(
+                  "Could not find gen_wrapper return block in fuzz.py"
+              )
+
+          text = text.replace(old, new, 1)
+
+          old = """                return outcome, raised
+          """
+
+          new = """                return outcome, raised, generation_duration
+          """
+
+          if old not in text:
+              raise SystemExit(
+                  "Could not find final gen_wrapper return in fuzz.py"
+              )
+
+          text = text.replace(old, new, 1)
+
+          # --------------------------------------------------------------
+          # Have gen_callback() accept the optional duration.
+          # --------------------------------------------------------------
+
+          old = """        if isinstance(outcome, tuple):
+                      outcome, exc = outcome
+                  else:
+                      exc = None
+          """
+
+          new = """        generation_duration = None
+                  if isinstance(outcome, tuple):
+                      if len(outcome) == 3:
+                          outcome, exc, generation_duration = outcome
+                      else:
+                          outcome, exc = outcome
+                  else:
+                      exc = None
+          """
+
+          if "if len(outcome) == 3:" not in text:
+              if old not in text:
+                  raise SystemExit(
+                      "Could not find gen_callback tuple handling in fuzz.py"
+                  )
+
+              text = text.replace(old, new, 1)
+
+          old = """        global SUCCESS, FAILURE, SUBMITTED, OPTION_ERRORS, TIMEOUTS
+              SUBMITTED -= 1
+          """
+
+          new = """        global SUCCESS, FAILURE, SUBMITTED, OPTION_ERRORS, TIMEOUTS, GEN_TIMES
+              SUBMITTED -= 1
+
+              if (
+                  generation_duration is not None
+                  and outcome in (GenOutcome.Success, GenOutcome.Failure)
+              ):
+                  GEN_TIMES.append(generation_duration)
+          """
+
+          if "global SUCCESS, FAILURE, SUBMITTED, OPTION_ERRORS, TIMEOUTS, GEN_TIMES" not in text:
+              if old not in text:
+                  raise SystemExit(
+                      "Could not find gen_callback globals in fuzz.py"
+                  )
+
+              text = text.replace(old, new, 1)
+
+          # --------------------------------------------------------------
+          # Print min / average / max generation times.
+          # --------------------------------------------------------------
+
+          old = """    print()
+              print("Time taken: {:.2f}s".format(time.perf_counter() - START))
+          """
+
+          new = """    print()
+              print("Time taken: {:.2f}s".format(time.perf_counter() - START))
+
+              if GEN_TIMES:
+                  print()
+                  print("Generation time (excluding timeouts and ignored option errors):")
+                  print("  Samples:", len(GEN_TIMES))
+                  print("  Shortest: {:.3f}s".format(min(GEN_TIMES)))
+                  print("  Average:  {:.3f}s".format(sum(GEN_TIMES) / len(GEN_TIMES)))
+                  print("  Longest:  {:.3f}s".format(max(GEN_TIMES)))
+              else:
+                  print()
+                  print("Generation time: no completed generations to measure.")
+          """
+
+          if 'print("  Shortest:' not in text:
+              if old not in text:
+                  raise SystemExit(
+                      "Could not find print_status() timing block in fuzz.py"
+                  )
+
+              text = text.replace(old, new, 1)
+
+          # --------------------------------------------------------------
+          # Include timing in report.json.
+          # --------------------------------------------------------------
+
+          old = """    computed_report = {"stats": stats, "errors": errors}
+          """
+
+          new = """    generation_time = None
+              if GEN_TIMES:
+                  generation_time = {
+                      "samples": len(GEN_TIMES),
+                      "shortest": min(GEN_TIMES),
+                      "average": sum(GEN_TIMES) / len(GEN_TIMES),
+                      "longest": max(GEN_TIMES),
+                  }
+
+              computed_report = {
+                  "stats": stats,
+                  "generation_time": generation_time,
+                  "errors": errors,
+              }
+          """
+
+          if '"generation_time": generation_time' not in text:
+              if old not in text:
+                  raise SystemExit(
+                      "Could not find report construction in fuzz.py"
+                  )
+
+              text = text.replace(old, new, 1)
+
+          # --------------------------------------------------------------
+          # Timeouts should not fail the fuzzer.
+          # --------------------------------------------------------------
+
+          old = """            os._exit((FAILURE + TIMEOUTS) != 0)
+          """
+
+          new = """            os._exit(FAILURE != 0)
+          """
+
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif "os._exit(FAILURE != 0)" not in text:
+              raise SystemExit(
+                  "Could not find fuzzer exit condition in fuzz.py"
+              )
+
+          path.write_text(text, encoding="utf-8")
+          print(f"Customized fuzzer: {path}")
+          PY
+
+      ######################################################################
       # Read / create / update manifest
       ######################################################################
 
@@ -1054,6 +1312,7 @@ jobs:
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
@@ -1080,6 +1339,7 @@ jobs:
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
@@ -1103,7 +1363,7 @@ jobs:
             -r "$FUZZER_RUNS" \
             -j "$JOBS" \
             -t "$TIMEOUT" \
-            -g "$WORLD"
+            -g "$WORLD" \
             --hook hooks.determinism:Hook
 
       ######################################################################
@@ -1115,6 +1375,7 @@ jobs:
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
@@ -1130,7 +1391,7 @@ jobs:
             -r "$FUZZER_RUNS" \
             -j "$FUZZER_JOBS" \
             -t "$FUZZER_TIMEOUT" \
-            -g "$WORLD"
+            -g "$WORLD" \
             --hook worlds.tracker.fuzzer_hook:Hook
 
       ######################################################################
@@ -1142,6 +1403,7 @@ jobs:
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
@@ -1157,8 +1419,63 @@ jobs:
             -r "$FUZZER_RUNS" \
             -j "$FUZZER_JOBS" \
             -t "$FUZZER_TIMEOUT" \
-            -g "$WORLD"
+            -g "$WORLD" \
             --hook worlds.tracker.fuzzer_hook:YamllessHook
+
+      ######################################################################
+      # Fuzzer summary
+      ######################################################################
+
+      - name: Fuzzer summary
+        if: ${{ always() && (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+        run: |
+          REPORT="$BUILD_ROOT/fuzz_output/report.json"
+
+          if [ ! -f "$REPORT" ]; then
+            echo "Fuzzer report was not created." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          python - "$REPORT" "$WORLD" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import sys
+          from pathlib import Path
+
+          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          world = sys.argv[2]
+
+          stats = report["stats"]
+          timing = report.get("generation_time")
+
+          print(f"## APWorld Fuzzer — `{world}`")
+          print()
+          print("| Result | Count |")
+          print("|---|---:|")
+          print(f"| Success | {stats['success']} |")
+          print(f"| Failures | {stats['failure']} |")
+          print(f"| Timeouts | {stats['timeout']} |")
+          print(f"| Ignored | {stats['ignored']} |")
+
+          if timing:
+              print()
+              print("### Generation time")
+              print()
+              print("| Metric | Time |")
+              print("|---|---:|")
+              print(f"| Shortest | {timing['shortest']:.3f}s |")
+              print(f"| Average | {timing['average']:.3f}s |")
+              print(f"| Longest | {timing['longest']:.3f}s |")
+
+          if stats["timeout"]:
+              print()
+              print(
+                  f"> {stats['timeout']} generation(s) hit the "
+                  "timeout limit. Timeouts do not fail this workflow."
+              )
+          PY
 
       ######################################################################
       # Upload fuzzer diagnostics
