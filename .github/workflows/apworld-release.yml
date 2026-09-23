@@ -695,243 +695,175 @@ jobs:
           path = Path(sys.argv[1])
           text = path.read_text(encoding="utf-8")
 
+          def replace_once(old: str, new: str, description: str) -> None:
+              global text
+
+              if old not in text:
+                  raise SystemExit(
+                      f"Could not find expected {description} in fuzz.py"
+                  )
+
+              text = text.replace(old, new, 1)
+
           # --------------------------------------------------------------
           # Add per-generation timing storage.
           # --------------------------------------------------------------
 
-          old = """REPORT = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [])))
-          """
-
-          new = """REPORT = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [])))
-          GEN_TIMES = []
-          """
-
           if "GEN_TIMES = []" not in text:
-              if old not in text:
-                  raise SystemExit(
-                      "Could not find REPORT declaration in fuzz.py"
-                  )
-
-              text = text.replace(old, new, 1)
-
-          # --------------------------------------------------------------
-          # Measure generation time in gen_wrapper().
-          # --------------------------------------------------------------
-
-          old = """    raised = None
-              mw = None
-              try:
-                  with redirect_stdout(out_buf), redirect_stderr(out_buf), tempfile.TemporaryDirectory(prefix="apfuzz", dir=tmp) as output_path:
-          """
-
-          new = """    raised = None
-              mw = None
-              generation_duration = None
-              generation_start = None
-              try:
-                  with redirect_stdout(out_buf), redirect_stderr(out_buf), tempfile.TemporaryDirectory(prefix="apfuzz", dir=tmp) as output_path:
-          """
-
-          if "generation_duration = None" not in text:
-              if old not in text:
-                  raise SystemExit(
-                      "Could not find gen_wrapper setup in fuzz.py"
-                  )
-
-              text = text.replace(old, new, 1)
-
-          old = """                    if timer:
-                          timer.start()
-                      mw = call_generate(yaml_path, args, output_path)
-                  except Exception as e:
-                      raised = e
-                  finally:
-          """
-
-          new = """                    generation_start = time.perf_counter()
-                      if timer:
-                          timer.start()
-                      mw = call_generate(yaml_path, args, output_path)
-                      generation_duration = time.perf_counter() - generation_start
-                  except Exception as e:
-                      raised = e
-                  finally:
-                      if generation_start is not None and generation_duration is None:
-                          generation_duration = time.perf_counter() - generation_start
-          """
-
-          if "generation_duration = time.perf_counter() - generation_start" not in text:
-              if old not in text:
-                  raise SystemExit(
-                      "Could not find call_generate block in fuzz.py"
-                  )
-
-              text = text.replace(old, new, 1)
-
-          # --------------------------------------------------------------
-          # Return the measured duration to gen_callback().
-          # --------------------------------------------------------------
-
-          old = """                if outcome == GenOutcome.Success:
-                      return outcome
-                  if outcome == GenOutcome.OptionError and not args.dump_ignored:
-                      return outcome
-          """
-
-          new = """                if outcome == GenOutcome.Success:
-                      return outcome, raised, generation_duration
-                  if outcome == GenOutcome.OptionError and not args.dump_ignored:
-                      return outcome
-          """
-
-          if old not in text:
-              raise SystemExit(
-                  "Could not find gen_wrapper return block in fuzz.py"
+              replace_once(
+                  "REPORT = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [])))\n",
+                  "REPORT = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [])))\n"
+                  "GEN_TIMES = []\n",
+                  "REPORT declaration",
               )
 
-          text = text.replace(old, new, 1)
-
-          old = """                return outcome, raised
-          """
-
-          new = """                return outcome, raised, generation_duration
-          """
-
-          if old not in text:
-              raise SystemExit(
-                  "Could not find final gen_wrapper return in fuzz.py"
-              )
-
-          text = text.replace(old, new, 1)
-
           # --------------------------------------------------------------
-          # Have gen_callback() accept the optional duration.
+          # Measure generation duration.
           # --------------------------------------------------------------
 
-          old = """        if isinstance(outcome, tuple):
-                      outcome, exc = outcome
-                  else:
-                      exc = None
-          """
+          replace_once(
+              "    raised = None\n"
+              "    mw = None\n"
+              "    try:\n",
+              "    raised = None\n"
+              "    mw = None\n"
+              "    generation_duration = None\n"
+              "    generation_start = None\n"
+              "    try:\n",
+              "gen_wrapper setup",
+          )
 
-          new = """        generation_duration = None
-                  if isinstance(outcome, tuple):
-                      if len(outcome) == 3:
-                          outcome, exc, generation_duration = outcome
-                      else:
-                          outcome, exc = outcome
-                  else:
-                      exc = None
-          """
-
-          if "if len(outcome) == 3:" not in text:
-              if old not in text:
-                  raise SystemExit(
-                      "Could not find gen_callback tuple handling in fuzz.py"
-                  )
-
-              text = text.replace(old, new, 1)
-
-          old = """        global SUCCESS, FAILURE, SUBMITTED, OPTION_ERRORS, TIMEOUTS
-              SUBMITTED -= 1
-          """
-
-          new = """        global SUCCESS, FAILURE, SUBMITTED, OPTION_ERRORS, TIMEOUTS, GEN_TIMES
-              SUBMITTED -= 1
-
-              if (
-                  generation_duration is not None
-                  and outcome in (GenOutcome.Success, GenOutcome.Failure)
-              ):
-                  GEN_TIMES.append(generation_duration)
-          """
-
-          if "global SUCCESS, FAILURE, SUBMITTED, OPTION_ERRORS, TIMEOUTS, GEN_TIMES" not in text:
-              if old not in text:
-                  raise SystemExit(
-                      "Could not find gen_callback globals in fuzz.py"
-                  )
-
-              text = text.replace(old, new, 1)
+          replace_once(
+              "                if timer:\n"
+              "                    timer.start()\n"
+              "                mw = call_generate(yaml_path, args, output_path)\n"
+              "            except Exception as e:\n"
+              "                raised = e\n",
+              "                if timer:\n"
+              "                    timer.start()\n"
+              "                generation_start = time.perf_counter()\n"
+              "                mw = call_generate(yaml_path, args, output_path)\n"
+              "                generation_duration = time.perf_counter() - generation_start\n"
+              "            except Exception as e:\n"
+              "                raised = e\n"
+              "                if generation_start is not None:\n"
+              "                    generation_duration = time.perf_counter() - generation_start\n",
+              "call_generate timing block",
+          )
 
           # --------------------------------------------------------------
-          # Print min / average / max generation times.
+          # Return timing from gen_wrapper().
           # --------------------------------------------------------------
 
-          old = """    print()
-              print("Time taken: {:.2f}s".format(time.perf_counter() - START))
-          """
+          replace_once(
+              "                if outcome == GenOutcome.Success:\n"
+              "                    return outcome\n"
+              "                if outcome == GenOutcome.OptionError and not args.dump_ignored:\n"
+              "                    return outcome\n",
+              "                if outcome == GenOutcome.Success:\n"
+              "                    return outcome, raised, generation_duration\n"
+              "                if outcome == GenOutcome.OptionError and not args.dump_ignored:\n"
+              "                    return outcome, raised, generation_duration\n",
+              "gen_wrapper success/option-error returns",
+          )
 
-          new = """    print()
-              print("Time taken: {:.2f}s".format(time.perf_counter() - START))
-
-              if GEN_TIMES:
-                  print()
-                  print("Generation time (excluding timeouts and ignored option errors):")
-                  print("  Samples:", len(GEN_TIMES))
-                  print("  Shortest: {:.3f}s".format(min(GEN_TIMES)))
-                  print("  Average:  {:.3f}s".format(sum(GEN_TIMES) / len(GEN_TIMES)))
-                  print("  Longest:  {:.3f}s".format(max(GEN_TIMES)))
-              else:
-                  print()
-                  print("Generation time: no completed generations to measure.")
-          """
-
-          if 'print("  Shortest:' not in text:
-              if old not in text:
-                  raise SystemExit(
-                      "Could not find print_status() timing block in fuzz.py"
-                  )
-
-              text = text.replace(old, new, 1)
+          replace_once(
+              "                return outcome, raised\n",
+              "                return outcome, raised, generation_duration\n",
+              "gen_wrapper final return",
+          )
 
           # --------------------------------------------------------------
-          # Include timing in report.json.
+          # Accept the timing value in gen_callback().
           # --------------------------------------------------------------
 
-          old = """    computed_report = {"stats": stats, "errors": errors}
-          """
-
-          new = """    generation_time = None
-              if GEN_TIMES:
-                  generation_time = {
-                      "samples": len(GEN_TIMES),
-                      "shortest": min(GEN_TIMES),
-                      "average": sum(GEN_TIMES) / len(GEN_TIMES),
-                      "longest": max(GEN_TIMES),
-                  }
-
-              computed_report = {
-                  "stats": stats,
-                  "generation_time": generation_time,
-                  "errors": errors,
-              }
-          """
-
-          if '"generation_time": generation_time' not in text:
-              if old not in text:
-                  raise SystemExit(
-                      "Could not find report construction in fuzz.py"
-                  )
-
-              text = text.replace(old, new, 1)
+          replace_once(
+              "        if isinstance(outcome, tuple):\n"
+              "            outcome, exc = outcome\n"
+              "        else:\n"
+              "            exc = None\n",
+              "        generation_duration = None\n"
+              "        if isinstance(outcome, tuple):\n"
+              "            if len(outcome) == 3:\n"
+              "                outcome, exc, generation_duration = outcome\n"
+              "            else:\n"
+              "                outcome, exc = outcome\n"
+              "        else:\n"
+              "            exc = None\n",
+              "gen_callback tuple handling",
+          )
 
           # --------------------------------------------------------------
-          # Timeouts should not fail the fuzzer.
+          # Store completed generation times.
           # --------------------------------------------------------------
 
-          old = """            os._exit((FAILURE + TIMEOUTS) != 0)
-          """
+          replace_once(
+              "        global SUCCESS, FAILURE, SUBMITTED, OPTION_ERRORS, TIMEOUTS\n"
+              "        SUBMITTED -= 1\n",
+              "        global SUCCESS, FAILURE, SUBMITTED, OPTION_ERRORS, TIMEOUTS, GEN_TIMES\n"
+              "        SUBMITTED -= 1\n"
+              "\n"
+              "        if (\n"
+              "            generation_duration is not None\n"
+              "            and outcome in (GenOutcome.Success, GenOutcome.Failure)\n"
+              "        ):\n"
+              "            GEN_TIMES.append(generation_duration)\n",
+              "gen_callback counters",
+          )
 
-          new = """            os._exit(FAILURE != 0)
-          """
+          # --------------------------------------------------------------
+          # Print generation timing statistics.
+          # --------------------------------------------------------------
 
-          if old in text:
-              text = text.replace(old, new, 1)
-          elif "os._exit(FAILURE != 0)" not in text:
-              raise SystemExit(
-                  "Could not find fuzzer exit condition in fuzz.py"
-              )
+          replace_once(
+              '    print("Time taken: {:.2f}s".format(time.perf_counter() - START))\n',
+              '    print("Time taken: {:.2f}s".format(time.perf_counter() - START))\n'
+              '\n'
+              '    if GEN_TIMES:\n'
+              '        print()\n'
+              '        print("Generation time (completed generations only):")\n'
+              '        print("  Samples:  {}".format(len(GEN_TIMES)))\n'
+              '        print("  Shortest: {:.3f}s".format(min(GEN_TIMES)))\n'
+              '        print("  Average:  {:.3f}s".format(sum(GEN_TIMES) / len(GEN_TIMES)))\n'
+              '        print("  Longest:  {:.3f}s".format(max(GEN_TIMES)))\n'
+              '    else:\n'
+              '        print()\n'
+              '        print("Generation time: no completed generations to measure.")\n',
+              "print_status timing output",
+          )
+
+          # --------------------------------------------------------------
+          # Include generation timing in report.json.
+          # --------------------------------------------------------------
+
+          replace_once(
+              '    computed_report = {"stats": stats, "errors": errors}\n',
+              '    generation_time = None\n'
+              '    if GEN_TIMES:\n'
+              '        generation_time = {\n'
+              '            "samples": len(GEN_TIMES),\n'
+              '            "shortest": min(GEN_TIMES),\n'
+              '            "average": sum(GEN_TIMES) / len(GEN_TIMES),\n'
+              '            "longest": max(GEN_TIMES),\n'
+              '        }\n'
+              '\n'
+              '    computed_report = {\n'
+              '        "stats": stats,\n'
+              '        "generation_time": generation_time,\n'
+              '        "errors": errors,\n'
+              '    }\n',
+              "report construction",
+          )
+
+          # --------------------------------------------------------------
+          # Timeouts are informational; real failures still fail the job.
+          # --------------------------------------------------------------
+
+          replace_once(
+              "            os._exit((FAILURE + TIMEOUTS) != 0)\n",
+              "            os._exit(FAILURE != 0)\n",
+              "fuzzer exit condition",
+          )
 
           path.write_text(text, encoding="utf-8")
           print(f"Customized fuzzer: {path}")
