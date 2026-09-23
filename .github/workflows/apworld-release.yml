@@ -567,6 +567,31 @@ jobs:
             "$BUILD_ROOT/fuzz.py"
 
           ##################################################################
+          # Allow each fuzzer invocation to use a separate output directory
+          ##################################################################
+
+          python - "$BUILD_ROOT/fuzz.py" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8")
+
+          old = 'OUT_DIR = f"fuzz_output"'
+          new = 'OUT_DIR = os.environ.get("APFUZZ_OUT_DIR", "fuzz_output")'
+
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif 'os.environ.get("APFUZZ_OUT_DIR"' not in text:
+              raise SystemExit(
+                  "Could not find OUT_DIR declaration in fuzz.py"
+              )
+
+          path.write_text(text, encoding="utf-8")
+          print("Added APFUZZ_OUT_DIR support.")
+          PY
+
+          ##################################################################
           # Optional determinism hook
           ##################################################################
 
@@ -1248,13 +1273,16 @@ jobs:
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          APFUZZ_OUT_DIR: ${{ steps.build_root.outputs.build_root }}/fuzz_output/normal
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
           echo "Running APWorld fuzzer:"
           echo "  Game:    $GAME"
+          echo "  World:   $WORLD"
           echo "  Runs:    $FUZZER_RUNS"
           echo "  Jobs:    $FUZZER_JOBS"
           echo "  Timeout: $FUZZER_TIMEOUT seconds"
+          echo "  Output:  $APFUZZ_OUT_DIR"
 
           python -O fuzz.py \
             -r "$FUZZER_RUNS" \
@@ -1275,6 +1303,7 @@ jobs:
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          APFUZZ_OUT_DIR: ${{ steps.build_root.outputs.build_root }}/fuzz_output/determinism
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
           JOBS=$((FUZZER_JOBS / 2))
@@ -1287,9 +1316,11 @@ jobs:
 
           echo "Running determinism fuzzer:"
           echo "  Game:    $GAME"
+          echo "  World:   $WORLD"
           echo "  Runs:    $FUZZER_RUNS"
           echo "  Jobs:    $JOBS"
           echo "  Timeout: $TIMEOUT seconds"
+          echo "  Output:  $APFUZZ_OUT_DIR"
 
           python -O fuzz.py \
             -r "$FUZZER_RUNS" \
@@ -1311,13 +1342,16 @@ jobs:
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          APFUZZ_OUT_DIR: ${{ steps.build_root.outputs.build_root }}/fuzz_output/ut
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
           echo "Running Universal Tracker fuzzer:"
           echo "  Game:    $GAME"
+          echo "  World:   $WORLD"
           echo "  Runs:    $FUZZER_RUNS"
           echo "  Jobs:    $FUZZER_JOBS"
           echo "  Timeout: $FUZZER_TIMEOUT seconds"
+          echo "  Output:  $APFUZZ_OUT_DIR"
 
           python -O fuzz.py \
             -r "$FUZZER_RUNS" \
@@ -1339,13 +1373,16 @@ jobs:
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          APFUZZ_OUT_DIR: ${{ steps.build_root.outputs.build_root }}/fuzz_output/yamlless_ut
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
           echo "Running Yamlless Universal Tracker fuzzer:"
           echo "  Game:    $GAME"
+          echo "  World:   $WORLD"
           echo "  Runs:    $FUZZER_RUNS"
           echo "  Jobs:    $FUZZER_JOBS"
           echo "  Timeout: $FUZZER_TIMEOUT seconds"
+          echo "  Output:  $APFUZZ_OUT_DIR"
 
           python -O fuzz.py \
             -r "$FUZZER_RUNS" \
@@ -1359,54 +1396,89 @@ jobs:
       ######################################################################
 
       - name: Fuzzer summary
-        if: ${{ always() && (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
+        if: ${{ (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
         run: |
-          REPORT="$BUILD_ROOT/fuzz_output/report.json"
-
-          if [ ! -f "$REPORT" ]; then
-            echo "Fuzzer report was not created." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          python - "$REPORT" "$WORLD" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          python - "$BUILD_ROOT/fuzz_output" "$WORLD" <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
           import sys
           from pathlib import Path
 
-          report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          root = Path(sys.argv[1])
           world = sys.argv[2]
 
-          stats = report["stats"]
-          timing = report.get("generation_time")
+          fuzzers = [
+              ("normal", "Normal Fuzzer"),
+              ("determinism", "Determinism Fuzzer"),
+              ("ut", "Universal Tracker Fuzzer"),
+              ("yamlless_ut", "Yamlless UT Fuzzer"),
+          ]
 
-          print(f"## APWorld Fuzzer — `{world}`")
+          print(f"## APWorld Fuzzer Results — `{world}`")
           print()
-          print("| Result | Count |")
-          print("|---|---:|")
-          print(f"| Success | {stats['success']} |")
-          print(f"| Failures | {stats['failure']} |")
-          print(f"| Timeouts | {stats['timeout']} |")
-          print(f"| Ignored | {stats['ignored']} |")
 
-          if timing:
-              print()
-              print("### Generation time")
-              print()
-              print("| Metric | Time |")
-              print("|---|---:|")
-              print(f"| Shortest | {timing['shortest']:.3f}s |")
-              print(f"| Average | {timing['average']:.3f}s |")
-              print(f"| Longest | {timing['longest']:.3f}s |")
+          found_any = False
 
-          if stats["timeout"]:
-              print()
-              print(
-                  f"> {stats['timeout']} generation(s) hit the "
-                  "timeout limit. Timeouts do not fail this workflow."
+          for directory, title in fuzzers:
+              report_path = root / directory / "report.json"
+
+              if not report_path.exists():
+                  continue
+
+              found_any = True
+
+              report = json.loads(
+                  report_path.read_text(encoding="utf-8")
               )
+
+              stats = report["stats"]
+              timing = report.get("generation_time")
+
+              print(f"### {title}")
+              print()
+
+              print("| Result | Count |")
+              print("|---|---:|")
+              print(f"| Success | {stats['success']} |")
+              print(f"| Failures | {stats['failure']} |")
+              print(f"| Timeouts | {stats['timeout']} |")
+              print(f"| Ignored | {stats['ignored']} |")
+
+              if timing:
+                  print()
+                  print("| Generation time | Time |")
+                  print("|---|---:|")
+                  print(
+                      f"| Shortest | {timing['shortest']:.3f}s |"
+                  )
+                  print(
+                      f"| Average | {timing['average']:.3f}s |"
+                  )
+                  print(
+                      f"| Longest | {timing['longest']:.3f}s |"
+                  )
+
+              if stats["timeout"]:
+                  print()
+                  print(
+                      f"> {stats['timeout']} generation(s) "
+                      "hit the timeout limit. "
+                      "Timeouts do not fail this workflow."
+                  )
+
+              if stats["failure"]:
+                  print()
+                  print(
+                      f"> **{stats['failure']} real generation "
+                      "failure(s) detected.**"
+                  )
+
+              print()
+
+          if not found_any:
+              print("No fuzzer reports were found.")
           PY
 
       ######################################################################
@@ -1414,7 +1486,7 @@ jobs:
       ######################################################################
 
       - name: Upload fuzzer output
-        if: ${{ always() && (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
+        if: ${{ (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
         uses: actions/upload-artifact@v4
         with:
           name: apworld-fuzzer-output
