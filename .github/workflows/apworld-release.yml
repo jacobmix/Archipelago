@@ -1053,7 +1053,7 @@ jobs:
         if: ${{ inputs.run_fuzzer }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-          GAME: ${{ steps.manifest.outputs.game }}
+          WORLD: ${{ steps.world.outputs.world }}
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
@@ -1069,7 +1069,7 @@ jobs:
             -r "$FUZZER_RUNS" \
             -j "$FUZZER_JOBS" \
             -t "$FUZZER_TIMEOUT" \
-            -g "$GAME"
+            -g "$WORLD"
 
       ######################################################################
       # Run determinism fuzzer
@@ -1079,7 +1079,7 @@ jobs:
         if: ${{ inputs.run_determinism_fuzzer }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-          GAME: ${{ steps.manifest.outputs.game }}
+          WORLD: ${{ steps.world.outputs.world }}
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
@@ -1103,7 +1103,7 @@ jobs:
             -r "$FUZZER_RUNS" \
             -j "$JOBS" \
             -t "$TIMEOUT" \
-            -g "$GAME" \
+            -g "$WORLD"
             --hook hooks.determinism:Hook
 
       ######################################################################
@@ -1114,7 +1114,7 @@ jobs:
         if: ${{ inputs.run_ut_fuzzer }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-          GAME: ${{ steps.manifest.outputs.game }}
+          WORLD: ${{ steps.world.outputs.world }}
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
@@ -1130,7 +1130,7 @@ jobs:
             -r "$FUZZER_RUNS" \
             -j "$FUZZER_JOBS" \
             -t "$FUZZER_TIMEOUT" \
-            -g "$GAME" \
+            -g "$WORLD"
             --hook worlds.tracker.fuzzer_hook:Hook
 
       ######################################################################
@@ -1141,7 +1141,7 @@ jobs:
         if: ${{ inputs.run_yamlless_ut_fuzzer }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-          GAME: ${{ steps.manifest.outputs.game }}
+          WORLD: ${{ steps.world.outputs.world }}
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
@@ -1157,7 +1157,7 @@ jobs:
             -r "$FUZZER_RUNS" \
             -j "$FUZZER_JOBS" \
             -t "$FUZZER_TIMEOUT" \
-            -g "$GAME" \
+            -g "$WORLD"
             --hook worlds.tracker.fuzzer_hook:YamllessHook
 
       ######################################################################
