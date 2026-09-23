@@ -5,8 +5,7 @@ on:
     inputs:
       bump:
         description: |
-          World version bump.
-          Ignored when world_version is provided.
+          World version bump (ignored if world version is provided):
         type: choice
         default: patch
         options:
@@ -17,24 +16,19 @@ on:
 
       world_version:
         description: |
-          Override world_version.
-          Leave blank to use the selected version bump.
+          Override world version (leave blank to use the selected bump):
         required: false
         default: ""
 
       game:
         description: |
-          Override game name.
-          Required when archipelago.json is missing or has no game.
+          Override game name (required if archipelago.json lacks one):
         required: false
         default: ""
 
       build_environment:
         description: |
-          Archipelago environment used to build the APWorld.
-          latest = newest stable tag.
-          main = upstream main.
-          local = this repository branch.
+          AP environment: latest (newest stable), main (upstream), local (branch):
         type: choice
         default: "latest"
         options:
@@ -44,37 +38,31 @@ on:
 
       apworld_path:
         description: |
-          APWorld source path, optionally followed by ':APWorldName'
-          If no name is provided, the branch name is used.
-          Blank = repository root for upstream builds, worlds/<branch> for local builds.
-          Example: .:apquest
-          Example: worlds/apquest
+          Apworld path, opt. followed by ':Name' (e.g., .:apquest or worlds/apquest) If no name is provided, the branch name is used. (blank = .:<branch> or worlds/<branch>:<branch>):
         required: false
         default: ""
 
       minimum_ap_version:
         description: |
-          Override minimum Archipelago version.
-          Leave blank to keep the current value.
+          Override minimum Archipelago version (blank = keep current):
         required: false
         default: ""
 
       maximum_ap_version:
         description: |
-          Override maximum Archipelago version.
-          Leave blank to keep the current value.
+          Override maximum Archipelago version (blank = keep current):
         required: false
         default: ""
 
       authors:
         description: |
-          Override authors as a comma-separated list.
+          Override authors as a comma-separated list:
         required: false
         default: ""
 
       clamp_minimum_ap_version:
         description: |
-          Clamp minimum_ap_version to the latest stable Archipelago release.
+          Clamp minimum_ap_version to the latest stable release.
         type: boolean
         default: true
 
@@ -86,33 +74,59 @@ on:
 
       include_player_yaml:
         description: |
-          Include the generated player options YAML in the GitHub release.
+          Include generated player options YAML in the release.
         type: boolean
         default: true
 
       include_changelog:
         description: |
-          Include changes under the APWorld source directory in the release notes.
+          Include changes under the APWorld source directory in release notes.
         type: boolean
         default: true
 
       release_notes_file:
         description: |
-          Optional release notes template path.
-          Blank = use the built-in template.
+          Release notes template path (blank = built-in template).
         required: false
         default: ""
 
       run_generation:
         description: |
-          Run a multiworld generation test using the APWorld and APQuest.
+          Run a multiworld generation test using APWorld and APQuest.
+        type: boolean
+        default: false
+
+      run_fuzzer:
+        type: boolean
+        default: false
+      
+      fuzzer_runs:
+        default: "100"
+      
+      fuzzer_jobs:
+        default: "4"
+
+      fuzzer_timeout:
+        description: |
+          Maximum seconds allowed per fuzzer generation.
+        required: false
+        default: "15"
+      
+      run_determinism_fuzzer:
+        type: boolean
+        default: false
+      
+      run_ut_fuzzer:
+        type: boolean
+        default: false
+      
+      run_yamlless_ut_fuzzer:
         type: boolean
         default: false
 
       run_tests:
         description: |
           Run the Archipelago unit tests before releasing.
-          Tests may currently fail.
         type: boolean
         default: false
 
@@ -520,6 +534,152 @@ jobs:
           PY
 
       ######################################################################
+      # Prepare fuzzer support
+      ######################################################################
+
+      - name: Prepare fuzzer support
+        if: ${{ inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          RUN_DETERMINISM: ${{ inputs.run_determinism_fuzzer }}
+          RUN_UT: ${{ inputs.run_ut_fuzzer }}
+          RUN_YAMLLESS_UT: ${{ inputs.run_yamlless_ut_fuzzer }}
+        run: |
+          FUZZER_SOURCE="$RUNNER_TEMP/archipelago-fuzzer"
+          TRACKER_SOURCE="$RUNNER_TEMP/archipelago-tracker"
+
+          rm -rf "$FUZZER_SOURCE" "$TRACKER_SOURCE"
+
+          ##################################################################
+          # Download Archipelago fuzzer
+          ##################################################################
+
+          echo "Downloading Archipelago fuzzer..."
+
+          git clone \
+            --depth 1 \
+            --branch main \
+            https://github.com/Eijebong/Archipelago-fuzzer.git \
+            "$FUZZER_SOURCE"
+
+          cp \
+            "$FUZZER_SOURCE/fuzz.py" \
+            "$BUILD_ROOT/fuzz.py"
+
+          ##################################################################
+          # Optional determinism hook
+          ##################################################################
+
+          if [ "$RUN_DETERMINISM" = "true" ]; then
+            echo "Installing determinism hook..."
+
+            mkdir -p "$BUILD_ROOT/hooks"
+
+            cp \
+              "$FUZZER_SOURCE/hooks/determinism.py" \
+              "$BUILD_ROOT/hooks/determinism.py"
+          fi
+
+          ##################################################################
+          # Optional Universal Tracker support
+          ##################################################################
+
+          if [ "$RUN_UT" = "true" ] || [ "$RUN_YAMLLESS_UT" = "true" ]; then
+            echo "Downloading Universal Tracker world..."
+
+            git clone \
+              --depth 1 \
+              --filter=blob:none \
+              --sparse \
+              --branch tracker \
+              https://github.com/FarisTheAncient/Archipelago.git \
+              "$TRACKER_SOURCE"
+
+            git -C "$TRACKER_SOURCE" sparse-checkout set worlds/tracker
+
+            if [ -e "$BUILD_ROOT/worlds/tracker" ]; then
+              echo "::error::Build environment already contains worlds/tracker."
+              echo "::error::Refusing to overwrite an existing Tracker world."
+              exit 1
+            fi
+
+            mkdir -p "$BUILD_ROOT/worlds"
+
+            cp -a \
+              "$TRACKER_SOURCE/worlds/tracker" \
+              "$BUILD_ROOT/worlds/tracker"
+          fi
+
+          ##################################################################
+          # Current fuzzer hook compatibility check
+          ##################################################################
+
+          if [ "$RUN_DETERMINISM" = "true" ] || \
+             [ "$RUN_UT" = "true" ] || \
+             [ "$RUN_YAMLLESS_UT" = "true" ]; then
+
+            if grep -Fq 'if issubclass(obj, BaseHook):' "$BUILD_ROOT/fuzz.py"; then
+              echo "::warning::Patching inverted BaseHook check in fuzz.py."
+
+              python - "$BUILD_ROOT/fuzz.py" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          text = path.read_text(encoding="utf-8")
+
+          old = "if issubclass(obj, BaseHook):"
+          new = "if not issubclass(obj, BaseHook):"
+
+          if old not in text:
+              raise SystemExit(
+                  "Expected fuzzer BaseHook check was not found."
+              )
+
+          text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+          print("Fixed BaseHook validation in fuzz.py.")
+          PY
+            fi
+          fi
+
+          ##################################################################
+          # Verify installed files
+          ##################################################################
+
+          echo ""
+          echo "Fuzzer files:"
+
+          if [ -f "$BUILD_ROOT/fuzz.py" ]; then
+            echo "  $BUILD_ROOT/fuzz.py"
+          else
+            echo "::error::fuzz.py was not installed."
+            exit 1
+          fi
+
+          if [ "$RUN_DETERMINISM" = "true" ]; then
+            if [ -f "$BUILD_ROOT/hooks/determinism.py" ]; then
+              echo "  $BUILD_ROOT/hooks/determinism.py"
+            else
+              echo "::error::Determinism hook was not installed."
+              exit 1
+            fi
+          fi
+
+          if [ "$RUN_UT" = "true" ] || [ "$RUN_YAMLLESS_UT" = "true" ]; then
+            if [ -f "$BUILD_ROOT/worlds/tracker/fuzzer_hook.py" ] && \
+               [ -f "$BUILD_ROOT/worlds/tracker/TrackerCore.py" ] && \
+               [ -f "$BUILD_ROOT/worlds/tracker/__init__.py" ]; then
+              echo "  $BUILD_ROOT/worlds/tracker/"
+            else
+              echo "::error::Universal Tracker support was not installed correctly."
+              exit 1
+            fi
+          fi
+
+      ######################################################################
       # Read / create / update manifest
       ######################################################################
 
@@ -886,10 +1046,158 @@ jobs:
           python Launcher.py "Generate"
 
       ######################################################################
-      # Unit tests
+      # Run normal APWorld fuzzer
       ######################################################################
 
-      # Unit tests currently have known failures.
+      - name: Run fuzzer
+        if: ${{ inputs.run_fuzzer }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          echo "Running APWorld fuzzer:"
+          echo "  Game:    $GAME"
+          echo "  Runs:    $FUZZER_RUNS"
+          echo "  Jobs:    $FUZZER_JOBS"
+          echo "  Timeout: $FUZZER_TIMEOUT seconds"
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$GAME"
+
+      ######################################################################
+      # Run determinism fuzzer
+      ######################################################################
+
+      - name: Run determinism fuzzer
+        if: ${{ inputs.run_determinism_fuzzer }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          JOBS=$((FUZZER_JOBS / 2))
+
+          if [ "$JOBS" -lt 1 ]; then
+            JOBS=1
+          fi
+
+          TIMEOUT=$((FUZZER_TIMEOUT * 2))
+
+          echo "Running determinism fuzzer:"
+          echo "  Game:    $GAME"
+          echo "  Runs:    $FUZZER_RUNS"
+          echo "  Jobs:    $JOBS"
+          echo "  Timeout: $TIMEOUT seconds"
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$JOBS" \
+            -t "$TIMEOUT" \
+            -g "$GAME" \
+            --hook hooks.determinism:Hook
+
+      ######################################################################
+      # Run Universal Tracker fuzzer
+      ######################################################################
+
+      - name: Run UT fuzzer
+        if: ${{ inputs.run_ut_fuzzer }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          echo "Running Universal Tracker fuzzer:"
+          echo "  Game:    $GAME"
+          echo "  Runs:    $FUZZER_RUNS"
+          echo "  Jobs:    $FUZZER_JOBS"
+          echo "  Timeout: $FUZZER_TIMEOUT seconds"
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$GAME" \
+            --hook worlds.tracker.fuzzer_hook:Hook
+
+      ######################################################################
+      # Run Yamlless Universal Tracker fuzzer
+      ######################################################################
+
+      - name: Run Yamlless UT fuzzer
+        if: ${{ inputs.run_yamlless_ut_fuzzer }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          echo "Running Yamlless Universal Tracker fuzzer:"
+          echo "  Game:    $GAME"
+          echo "  Runs:    $FUZZER_RUNS"
+          echo "  Jobs:    $FUZZER_JOBS"
+          echo "  Timeout: $FUZZER_TIMEOUT seconds"
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$GAME" \
+            --hook worlds.tracker.fuzzer_hook:YamllessHook
+
+      ######################################################################
+      # Upload fuzzer diagnostics
+      ######################################################################
+
+      - name: Upload fuzzer output
+        if: ${{ always() && (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: apworld-fuzzer-output
+          path: ${{ steps.build_root.outputs.build_root }}/fuzz_output
+          if-no-files-found: ignore
+
+      ######################################################################
+      # Clean up fuzzer support
+      ######################################################################
+
+      - name: Clean up fuzzer support
+        if: always()
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          RUN_DETERMINISM: ${{ inputs.run_determinism_fuzzer }}
+          RUN_UT: ${{ inputs.run_ut_fuzzer }}
+          RUN_YAMLLESS_UT: ${{ inputs.run_yamlless_ut_fuzzer }}
+        run: |
+          rm -f "$BUILD_ROOT/fuzz.py"
+
+          if [ "$RUN_DETERMINISM" = "true" ]; then
+            rm -f "$BUILD_ROOT/hooks/determinism.py"
+            rmdir "$BUILD_ROOT/hooks" 2>/dev/null || true
+          fi
+
+          if [ "$RUN_UT" = "true" ] || [ "$RUN_YAMLLESS_UT" = "true" ]; then
+            rm -rf "$BUILD_ROOT/worlds/tracker"
+          fi
+
+      ######################################################################
+      # Unit tests
+      ######################################################################
 
       - name: Install test dependencies
         if: ${{ inputs.run_tests }}
