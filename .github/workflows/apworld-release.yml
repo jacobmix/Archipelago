@@ -539,6 +539,7 @@ jobs:
 
       - name: Prepare fuzzer support
         if: ${{ inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer }}
+        id: fuzzer_support
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           RUN_DETERMINISM: ${{ inputs.run_determinism_fuzzer }}
@@ -550,64 +551,25 @@ jobs:
 
           rm -rf "$FUZZER_SOURCE" "$TRACKER_SOURCE"
 
-          ##################################################################
-          # Download Archipelago fuzzer
-          ##################################################################
-
           echo "Downloading Archipelago fuzzer..."
 
           git clone \
             --depth 1 \
-            --branch main \
-            https://github.com/Eijebong/Archipelago-fuzzer.git \
+            --branch workflow \
+            https://github.com/jacobmix/Archipelago-fuzzer.git \
             "$FUZZER_SOURCE"
 
           cp \
             "$FUZZER_SOURCE/fuzz.py" \
             "$BUILD_ROOT/fuzz.py"
 
-          ##################################################################
-          # Allow each fuzzer invocation to use a separate output directory
-          ##################################################################
-
-          python - "$BUILD_ROOT/fuzz.py" <<'PY'
-          import sys
-          from pathlib import Path
-
-          path = Path(sys.argv[1])
-          text = path.read_text(encoding="utf-8")
-
-          old = 'OUT_DIR = f"fuzz_output"'
-          new = 'OUT_DIR = os.environ.get("APFUZZ_OUT_DIR", "fuzz_output")'
-
-          if old in text:
-              text = text.replace(old, new, 1)
-          elif 'os.environ.get("APFUZZ_OUT_DIR"' not in text:
-              raise SystemExit(
-                  "Could not find OUT_DIR declaration in fuzz.py"
-              )
-
-          path.write_text(text, encoding="utf-8")
-          print("Added APFUZZ_OUT_DIR support.")
-          PY
-
-          ##################################################################
-          # Optional determinism hook
-          ##################################################################
-
           if [ "$RUN_DETERMINISM" = "true" ]; then
-            echo "Installing determinism hook..."
-
             mkdir -p "$BUILD_ROOT/hooks"
 
             cp \
               "$FUZZER_SOURCE/hooks/determinism.py" \
               "$BUILD_ROOT/hooks/determinism.py"
           fi
-
-          ##################################################################
-          # Optional Universal Tracker support
-          ##################################################################
 
           if [ "$RUN_UT" = "true" ] || [ "$RUN_YAMLLESS_UT" = "true" ]; then
             echo "Downloading Universal Tracker world..."
@@ -624,7 +586,6 @@ jobs:
 
             if [ -e "$BUILD_ROOT/worlds/tracker" ]; then
               echo "::error::Build environment already contains worlds/tracker."
-              echo "::error::Refusing to overwrite an existing Tracker world."
               exit 1
             fi
 
@@ -634,6 +595,8 @@ jobs:
               "$TRACKER_SOURCE/worlds/tracker" \
               "$BUILD_ROOT/worlds/tracker"
           fi
+
+          python -m py_compile "$BUILD_ROOT/fuzz.py"
 
           ##################################################################
           # Current fuzzer hook compatibility check
@@ -703,196 +666,6 @@ jobs:
               exit 1
             fi
           fi
-
-      ######################################################################
-      # Customize fuzzer reporting
-      ######################################################################
-
-      - name: Customize fuzzer reporting
-        if: ${{ inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer }}
-        env:
-          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-        run: |
-          python - "$BUILD_ROOT/fuzz.py" <<'PY'
-          import sys
-          from pathlib import Path
-
-          path = Path(sys.argv[1])
-          text = path.read_text(encoding="utf-8")
-
-          def replace_once(old: str, new: str, description: str) -> None:
-              global text
-
-              if old not in text:
-                  raise SystemExit(
-                      f"Could not find expected {description} in fuzz.py"
-                  )
-
-              text = text.replace(old, new, 1)
-
-          # --------------------------------------------------------------
-          # Add per-generation timing storage.
-          # --------------------------------------------------------------
-
-          if "GEN_TIMES = []" not in text:
-              replace_once(
-                  "REPORT = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [])))\n",
-                  "REPORT = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: [])))\n"
-                  "GEN_TIMES = []\n",
-                  "REPORT declaration",
-              )
-
-          # --------------------------------------------------------------
-          # Measure generation duration.
-          # --------------------------------------------------------------
-
-          replace_once(
-              "    raised = None\n"
-              "    mw = None\n"
-              "    try:\n",
-              "    raised = None\n"
-              "    mw = None\n"
-              "    generation_duration = None\n"
-              "    generation_start = None\n"
-              "    try:\n",
-              "gen_wrapper setup",
-          )
-
-          replace_once(
-              "                if timer:\n"
-              "                    timer.start()\n"
-              "                mw = call_generate(yaml_path, args, output_path)\n"
-              "            except Exception as e:\n"
-              "                raised = e\n",
-              "                if timer:\n"
-              "                    timer.start()\n"
-              "                generation_start = time.perf_counter()\n"
-              "                mw = call_generate(yaml_path, args, output_path)\n"
-              "                generation_duration = time.perf_counter() - generation_start\n"
-              "            except Exception as e:\n"
-              "                raised = e\n"
-              "                if generation_start is not None:\n"
-              "                    generation_duration = time.perf_counter() - generation_start\n",
-              "call_generate timing block",
-          )
-
-          # --------------------------------------------------------------
-          # Return timing from gen_wrapper().
-          # --------------------------------------------------------------
-
-          replace_once(
-              "                if outcome == GenOutcome.Success:\n"
-              "                    return outcome\n"
-              "                if outcome == GenOutcome.OptionError and not args.dump_ignored:\n"
-              "                    return outcome\n",
-              "                if outcome == GenOutcome.Success:\n"
-              "                    return outcome, raised, generation_duration\n"
-              "                if outcome == GenOutcome.OptionError and not args.dump_ignored:\n"
-              "                    return outcome, raised, generation_duration\n",
-              "gen_wrapper success/option-error returns",
-          )
-
-          replace_once(
-              "                return outcome, raised\n",
-              "                return outcome, raised, generation_duration\n",
-              "gen_wrapper final return",
-          )
-
-          # --------------------------------------------------------------
-          # Accept the timing value in gen_callback().
-          # --------------------------------------------------------------
-
-          replace_once(
-              "        if isinstance(outcome, tuple):\n"
-              "            outcome, exc = outcome\n"
-              "        else:\n"
-              "            exc = None\n",
-              "        generation_duration = None\n"
-              "        if isinstance(outcome, tuple):\n"
-              "            if len(outcome) == 3:\n"
-              "                outcome, exc, generation_duration = outcome\n"
-              "            else:\n"
-              "                outcome, exc = outcome\n"
-              "        else:\n"
-              "            exc = None\n",
-              "gen_callback tuple handling",
-          )
-
-          # --------------------------------------------------------------
-          # Store completed generation times.
-          # --------------------------------------------------------------
-
-          replace_once(
-              "        global SUCCESS, FAILURE, SUBMITTED, OPTION_ERRORS, TIMEOUTS\n"
-              "        SUBMITTED -= 1\n",
-              "        global SUCCESS, FAILURE, SUBMITTED, OPTION_ERRORS, TIMEOUTS, GEN_TIMES\n"
-              "        SUBMITTED -= 1\n"
-              "\n"
-              "        if (\n"
-              "            generation_duration is not None\n"
-              "            and outcome in (GenOutcome.Success, GenOutcome.Failure)\n"
-              "        ):\n"
-              "            GEN_TIMES.append(generation_duration)\n",
-              "gen_callback counters",
-          )
-
-          # --------------------------------------------------------------
-          # Print generation timing statistics.
-          # --------------------------------------------------------------
-
-          replace_once(
-              '    print("Time taken: {:.2f}s".format(time.perf_counter() - START))\n',
-              '    print("Time taken: {:.2f}s".format(time.perf_counter() - START))\n'
-              '\n'
-              '    if GEN_TIMES:\n'
-              '        print()\n'
-              '        print("Generation time (completed generations only):")\n'
-              '        print("  Samples:  {}".format(len(GEN_TIMES)))\n'
-              '        print("  Shortest: {:.3f}s".format(min(GEN_TIMES)))\n'
-              '        print("  Average:  {:.3f}s".format(sum(GEN_TIMES) / len(GEN_TIMES)))\n'
-              '        print("  Longest:  {:.3f}s".format(max(GEN_TIMES)))\n'
-              '    else:\n'
-              '        print()\n'
-              '        print("Generation time: no completed generations to measure.")\n',
-              "print_status timing output",
-          )
-
-          # --------------------------------------------------------------
-          # Include generation timing in report.json.
-          # --------------------------------------------------------------
-
-          replace_once(
-              '    computed_report = {"stats": stats, "errors": errors}\n',
-              '    generation_time = None\n'
-              '    if GEN_TIMES:\n'
-              '        generation_time = {\n'
-              '            "samples": len(GEN_TIMES),\n'
-              '            "shortest": min(GEN_TIMES),\n'
-              '            "average": sum(GEN_TIMES) / len(GEN_TIMES),\n'
-              '            "longest": max(GEN_TIMES),\n'
-              '        }\n'
-              '\n'
-              '    computed_report = {\n'
-              '        "stats": stats,\n'
-              '        "generation_time": generation_time,\n'
-              '        "errors": errors,\n'
-              '    }\n',
-              "report construction",
-          )
-
-          # --------------------------------------------------------------
-          # Timeouts are informational; real failures still fail the job.
-          # --------------------------------------------------------------
-
-          replace_once(
-              "            os._exit((FAILURE + TIMEOUTS) != 0)\n",
-              "            os._exit(FAILURE != 0)\n",
-              "fuzzer exit condition",
-          )
-
-          path.write_text(text, encoding="utf-8")
-          print(f"Customized fuzzer: {path}")
-          PY
 
       ######################################################################
       # Read / create / update manifest
@@ -1273,7 +1046,7 @@ jobs:
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
-          APFUZZ_OUT_DIR: ${{ steps.build_root.outputs.build_root }}/fuzz_output/normal
+          APFUZZ_OUT_DIR: fuzz_output/normal
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
           echo "Running APWorld fuzzer:"
@@ -1303,7 +1076,7 @@ jobs:
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
-          APFUZZ_OUT_DIR: ${{ steps.build_root.outputs.build_root }}/fuzz_output/determinism
+          APFUZZ_OUT_DIR: fuzz_output/determinism
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
           JOBS=$((FUZZER_JOBS / 2))
@@ -1342,7 +1115,7 @@ jobs:
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
-          APFUZZ_OUT_DIR: ${{ steps.build_root.outputs.build_root }}/fuzz_output/ut
+          APFUZZ_OUT_DIR: fuzz_output/ut
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
           echo "Running Universal Tracker fuzzer:"
@@ -1373,7 +1146,7 @@ jobs:
           FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
-          APFUZZ_OUT_DIR: ${{ steps.build_root.outputs.build_root }}/fuzz_output/yamlless_ut
+          APFUZZ_OUT_DIR: fuzz_output/yamlless_ut
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
           echo "Running Yamlless Universal Tracker fuzzer:"
@@ -1396,7 +1169,7 @@ jobs:
       ######################################################################
 
       - name: Fuzzer summary
-        if: ${{ (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
+        if: ${{ always() && (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1486,7 +1259,7 @@ jobs:
       ######################################################################
 
       - name: Upload fuzzer output
-        if: ${{ (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
+        if: ${{ always() && (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
         uses: actions/upload-artifact@v4
         with:
           name: apworld-fuzzer-output
@@ -1498,7 +1271,7 @@ jobs:
       ######################################################################
 
       - name: Clean up fuzzer support
-        if: always()
+        if: ${{ always() && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           RUN_DETERMINISM: ${{ inputs.run_determinism_fuzzer }}
