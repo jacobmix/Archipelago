@@ -96,33 +96,41 @@ on:
         type: boolean
         default: false
 
-      run_fuzzer:
-        type: boolean
-        default: false
-      
-      fuzzer_runs:
-        default: "100"
-      
+      normal_fuzzer_runs:
+        description: |
+          Number of normal fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+
+      determinism_fuzzer_runs:
+        description: |
+          Number of determinism fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+
+      ut_fuzzer_runs:
+        description: |
+          Number of Universal Tracker fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+
+      yamlless_ut_fuzzer_runs:
+        description: |
+          Number of Yamlless UT fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+
       fuzzer_jobs:
-        default: "4"
+        description: |
+          Number of parallel fuzzer workers.
+        type: number
+        default: 4
 
       fuzzer_timeout:
         description: |
           Maximum seconds allowed per fuzzer generation.
-        required: false
-        default: "25"
-      
-      run_determinism_fuzzer:
-        type: boolean
-        default: false
-      
-      run_ut_fuzzer:
-        type: boolean
-        default: false
-      
-      run_yamlless_ut_fuzzer:
-        type: boolean
-        default: false
+        type: number
+        default: 25
 
       run_tests:
         description: |
@@ -538,13 +546,13 @@ jobs:
       ######################################################################
 
       - name: Prepare fuzzer support
-        if: ${{ inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer }}
+        if: ${{ inputs.normal_fuzzer_runs > 0 || inputs.determinism_fuzzer_runs > 0 || inputs.ut_fuzzer_runs > 0 || inputs.yamlless_ut_fuzzer_runs > 0 }}
         id: fuzzer_support
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-          RUN_DETERMINISM: ${{ inputs.run_determinism_fuzzer }}
-          RUN_UT: ${{ inputs.run_ut_fuzzer }}
-          RUN_YAMLLESS_UT: ${{ inputs.run_yamlless_ut_fuzzer }}
+          DETERMINISM_RUNS: ${{ inputs.determinism_fuzzer_runs }}
+          UT_RUNS: ${{ inputs.ut_fuzzer_runs }}
+          YAMLLESS_UT_RUNS: ${{ inputs.yamlless_ut_fuzzer_runs }}
         run: |
           FUZZER_SOURCE="$RUNNER_TEMP/archipelago-fuzzer"
           TRACKER_SOURCE="$RUNNER_TEMP/archipelago-tracker"
@@ -563,7 +571,7 @@ jobs:
             "$FUZZER_SOURCE/fuzz.py" \
             "$BUILD_ROOT/fuzz.py"
 
-          if [ "$RUN_DETERMINISM" = "true" ]; then
+          if [ "$DETERMINISM_RUNS" -gt 0 ]; then
             mkdir -p "$BUILD_ROOT/hooks"
 
             cp \
@@ -571,7 +579,7 @@ jobs:
               "$BUILD_ROOT/hooks/determinism.py"
           fi
 
-          if [ "$RUN_UT" = "true" ] || [ "$RUN_YAMLLESS_UT" = "true" ]; then
+          if [ "$UT_RUNS" -gt 0 ] || [ "$YAMLLESS_UT_RUNS" -gt 0 ]; then
             echo "Downloading Universal Tracker world..."
 
             git clone \
@@ -598,40 +606,6 @@ jobs:
 
           python -m py_compile "$BUILD_ROOT/fuzz.py"
 
-          ##################################################################
-          # Current fuzzer hook compatibility check
-          ##################################################################
-
-          if [ "$RUN_DETERMINISM" = "true" ] || \
-             [ "$RUN_UT" = "true" ] || \
-             [ "$RUN_YAMLLESS_UT" = "true" ]; then
-
-            if grep -Fq 'if issubclass(obj, BaseHook):' "$BUILD_ROOT/fuzz.py"; then
-              echo "::warning::Patching inverted BaseHook check in fuzz.py."
-
-              python - "$BUILD_ROOT/fuzz.py" <<'PY'
-          import sys
-          from pathlib import Path
-
-          path = Path(sys.argv[1])
-          text = path.read_text(encoding="utf-8")
-
-          old = "if issubclass(obj, BaseHook):"
-          new = "if not issubclass(obj, BaseHook):"
-
-          if old not in text:
-              raise SystemExit(
-                  "Expected fuzzer BaseHook check was not found."
-              )
-
-          text = text.replace(old, new, 1)
-
-          path.write_text(text, encoding="utf-8")
-
-          print("Fixed BaseHook validation in fuzz.py.")
-          PY
-            fi
-          fi
 
           ##################################################################
           # Verify installed files
@@ -647,7 +621,7 @@ jobs:
             exit 1
           fi
 
-          if [ "$RUN_DETERMINISM" = "true" ]; then
+          if [ "$DETERMINISM_RUNS" -gt 0 ]; then
             if [ -f "$BUILD_ROOT/hooks/determinism.py" ]; then
               echo "  $BUILD_ROOT/hooks/determinism.py"
             else
@@ -656,7 +630,7 @@ jobs:
             fi
           fi
 
-          if [ "$RUN_UT" = "true" ] || [ "$RUN_YAMLLESS_UT" = "true" ]; then
+          if [ "$UT_RUNS" -gt 0 ] || [ "$YAMLLESS_UT_RUNS" -gt 0 ]; then
             if [ -f "$BUILD_ROOT/worlds/tracker/fuzzer_hook.py" ] && \
                [ -f "$BUILD_ROOT/worlds/tracker/TrackerCore.py" ] && \
                [ -f "$BUILD_ROOT/worlds/tracker/__init__.py" ]; then
@@ -1038,12 +1012,12 @@ jobs:
       ######################################################################
 
       - name: Run fuzzer
-        if: ${{ inputs.run_fuzzer }}
+        if: ${{ inputs.normal_fuzzer_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
+          FUZZER_RUNS: ${{ inputs.normal_fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           APFUZZ_OUT_DIR: fuzz_output/normal
@@ -1068,12 +1042,12 @@ jobs:
       ######################################################################
 
       - name: Run determinism fuzzer
-        if: ${{ inputs.run_determinism_fuzzer }}
+        if: ${{ inputs.determinism_fuzzer_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
+          FUZZER_RUNS: ${{ inputs.determinism_fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           APFUZZ_OUT_DIR: fuzz_output/determinism
@@ -1107,12 +1081,12 @@ jobs:
       ######################################################################
 
       - name: Run UT fuzzer
-        if: ${{ inputs.run_ut_fuzzer }}
+        if: ${{ inputs.ut_fuzzer_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
+          FUZZER_RUNS: ${{ inputs.ut_fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           APFUZZ_OUT_DIR: fuzz_output/ut
@@ -1138,12 +1112,12 @@ jobs:
       ######################################################################
 
       - name: Run Yamlless UT fuzzer
-        if: ${{ inputs.run_yamlless_ut_fuzzer }}
+        if: ${{ inputs.yamlless_ut_fuzzer_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.fuzzer_runs }}
+          FUZZER_RUNS: ${{ inputs.yamlless_ut_fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           APFUZZ_OUT_DIR: fuzz_output/yamlless_ut
@@ -1169,7 +1143,7 @@ jobs:
       ######################################################################
 
       - name: Fuzzer summary
-        if: ${{ always() && (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
+        if: ${{ always() && (inputs.normal_fuzzer_runs > 0 || inputs.determinism_fuzzer_runs > 0 || inputs.ut_fuzzer_runs > 0 || inputs.yamlless_ut_fuzzer_runs > 0) }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1259,7 +1233,7 @@ jobs:
       ######################################################################
 
       - name: Upload fuzzer output
-        if: ${{ always() && (inputs.run_fuzzer || inputs.run_determinism_fuzzer || inputs.run_ut_fuzzer || inputs.run_yamlless_ut_fuzzer) }}
+        if: ${{ always() && (inputs.normal_fuzzer_runs > 0 || inputs.determinism_fuzzer_runs > 0 || inputs.ut_fuzzer_runs > 0 || inputs.yamlless_ut_fuzzer_runs > 0) }}
         uses: actions/upload-artifact@v4
         with:
           name: apworld-fuzzer-output
@@ -1274,18 +1248,18 @@ jobs:
         if: ${{ always() && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-          RUN_DETERMINISM: ${{ inputs.run_determinism_fuzzer }}
-          RUN_UT: ${{ inputs.run_ut_fuzzer }}
-          RUN_YAMLLESS_UT: ${{ inputs.run_yamlless_ut_fuzzer }}
+          DETERMINISM_RUNS: ${{ inputs.determinism_fuzzer_runs }}
+          UT_RUNS: ${{ inputs.ut_fuzzer_runs }}
+          YAMLLESS_UT_RUNS: ${{ inputs.yamlless_ut_fuzzer_runs }}
         run: |
           rm -f "$BUILD_ROOT/fuzz.py"
 
-          if [ "$RUN_DETERMINISM" = "true" ]; then
+          if [ "$DETERMINISM_RUNS" -gt 0 ]; then
             rm -f "$BUILD_ROOT/hooks/determinism.py"
             rmdir "$BUILD_ROOT/hooks" 2>/dev/null || true
           fi
 
-          if [ "$RUN_UT" = "true" ] || [ "$RUN_YAMLLESS_UT" = "true" ]; then
+          if [ "$UT_RUNS" -gt 0 ] || [ "$YAMLLESS_UT_RUNS" -gt 0 ]; then
             rm -rf "$BUILD_ROOT/worlds/tracker"
           fi
 
