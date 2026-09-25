@@ -134,6 +134,54 @@ on:
         type: number
         default: 0
 
+      no_restrictive_starts_runs:
+        description: |
+          Number of no-restrictive-starts fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+      
+      check_collect_accessibility_runs:
+        description: |
+          Number of collect-accessibility fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+      
+      check_gerpocalypse_runs:
+        description: |
+          Number of GERPocalypse fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+      
+      check_indirect_conditions_runs:
+        description: |
+          Number of indirect-conditions fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+      
+      check_item_location_count_runs:
+        description: |
+          Number of item-location-count fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+      
+      check_lambda_capture_runs:
+        description: |
+          Number of lambda-capture fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+      
+      check_placement_item_location_refs_runs:
+        description: |
+          Number of placement-item-location-reference fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+      
+      check_static_output_placement_runs:
+        description: |
+          Number of static-output-placement fuzzer generations (0 = disabled).
+        type: number
+        default: 0
+
       ut_fuzzer_runs:
         description: |
           Number of Universal Tracker fuzzer generations (0 = disabled).
@@ -157,6 +205,12 @@ on:
           Maximum seconds allowed per fuzzer generation.
         type: number
         default: 25
+
+      use_fuzzer_meta:
+        description: |
+          Use the meta.yaml file from the repository root for fuzzer runs.
+        type: boolean
+        default: false
 
       run_tests:
         description: |
@@ -572,13 +626,23 @@ jobs:
       ######################################################################
 
       - name: Prepare fuzzer support
-        if: ${{ inputs.normal_fuzzer_runs > 0 || inputs.determinism_fuzzer_runs > 0 || inputs.ut_fuzzer_runs > 0 || inputs.yamlless_ut_fuzzer_runs > 0 }}
+        if: ${{ inputs.normal_fuzzer_runs > 0 || inputs.determinism_fuzzer_runs > 0 || inputs.no_restrictive_starts_runs > 0 || inputs.check_collect_accessibility_runs > 0 || inputs.check_gerpocalypse_runs > 0 || inputs.check_indirect_conditions_runs > 0 || inputs.check_item_location_count_runs > 0 || inputs.check_lambda_capture_runs > 0 || inputs.check_placement_item_location_refs_runs > 0 || inputs.check_static_output_placement_runs > 0 || inputs.ut_fuzzer_runs > 0 || inputs.yamlless_ut_fuzzer_runs > 0 }}
         id: fuzzer_support
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           DETERMINISM_RUNS: ${{ inputs.determinism_fuzzer_runs }}
+          NO_RESTRICTIVE_STARTS_RUNS: ${{ inputs.no_restrictive_starts_runs }}
+          CHECK_COLLECT_ACCESSIBILITY_RUNS: ${{ inputs.check_collect_accessibility_runs }}
+          CHECK_GERPOCALYPSE_RUNS: ${{ inputs.check_gerpocalypse_runs }}
+          CHECK_INDIRECT_CONDITIONS_RUNS: ${{ inputs.check_indirect_conditions_runs }}
+          CHECK_ITEM_LOCATION_COUNT_RUNS: ${{ inputs.check_item_location_count_runs }}
+          CHECK_LAMBDA_CAPTURE_RUNS: ${{ inputs.check_lambda_capture_runs }}
+          CHECK_PLACEMENT_ITEM_LOCATION_REFS_RUNS: ${{ inputs.check_placement_item_location_refs_runs }}
+          CHECK_STATIC_OUTPUT_PLACEMENT_RUNS: ${{ inputs.check_static_output_placement_runs }}
           UT_RUNS: ${{ inputs.ut_fuzzer_runs }}
           YAMLLESS_UT_RUNS: ${{ inputs.yamlless_ut_fuzzer_runs }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
         run: |
           FUZZER_SOURCE="$RUNNER_TEMP/archipelago-fuzzer"
           TRACKER_SOURCE="$RUNNER_TEMP/archipelago-tracker"
@@ -597,12 +661,70 @@ jobs:
             "$FUZZER_SOURCE/fuzz.py" \
             "$BUILD_ROOT/fuzz.py"
 
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            if [ ! -f "$FUZZER_META" ]; then
+              echo "::error::use_fuzzer_meta is enabled, but no meta.yaml exists at the repository root."
+              exit 1
+            fi
+
+            echo "Using fuzzer meta.yaml:"
+            echo "  $FUZZER_META"
+          fi
+
           if [ "$DETERMINISM_RUNS" -gt 0 ]; then
             mkdir -p "$BUILD_ROOT/hooks"
 
             cp \
               "$FUZZER_SOURCE/hooks/determinism.py" \
               "$BUILD_ROOT/hooks/determinism.py"
+          fi
+
+          if [ "$NO_RESTRICTIVE_STARTS_RUNS" -gt 0 ]; then
+            mkdir -p "$BUILD_ROOT/hooks"
+            cp "$FUZZER_SOURCE/hooks/with_empty.py" \
+               "$BUILD_ROOT/hooks/with_empty.py"
+          fi
+
+          if [ "$CHECK_COLLECT_ACCESSIBILITY_RUNS" -gt 0 ]; then
+            mkdir -p "$BUILD_ROOT/hooks"
+            cp "$FUZZER_SOURCE/hooks/collect_accessibility_test.py" \
+               "$BUILD_ROOT/hooks/collect_accessibility_test.py"
+          fi
+
+          if [ "$CHECK_GERPOCALYPSE_RUNS" -gt 0 ]; then
+            mkdir -p "$BUILD_ROOT/hooks"
+            cp "$FUZZER_SOURCE/hooks/gerpocalypse.py" \
+               "$BUILD_ROOT/hooks/gerpocalypse.py"
+          fi
+
+          if [ "$CHECK_INDIRECT_CONDITIONS_RUNS" -gt 0 ]; then
+            mkdir -p "$BUILD_ROOT/hooks"
+            cp "$FUZZER_SOURCE/hooks/indirect_conditions.py" \
+               "$BUILD_ROOT/hooks/indirect_conditions.py"
+          fi
+
+          if [ "$CHECK_ITEM_LOCATION_COUNT_RUNS" -gt 0 ]; then
+            mkdir -p "$BUILD_ROOT/hooks"
+            cp "$FUZZER_SOURCE/hooks/item_location_count.py" \
+               "$BUILD_ROOT/hooks/item_location_count.py"
+          fi
+
+          if [ "$CHECK_LAMBDA_CAPTURE_RUNS" -gt 0 ]; then
+            mkdir -p "$BUILD_ROOT/hooks"
+            cp "$FUZZER_SOURCE/hooks/detect_rule_variable_capture_issues.py" \
+               "$BUILD_ROOT/hooks/detect_rule_variable_capture_issues.py"
+          fi
+
+          if [ "$CHECK_PLACEMENT_ITEM_LOCATION_REFS_RUNS" -gt 0 ]; then
+            mkdir -p "$BUILD_ROOT/hooks"
+            cp "$FUZZER_SOURCE/hooks/check_placement_item_location_references.py" \
+               "$BUILD_ROOT/hooks/check_placement_item_location_references.py"
+          fi
+
+          if [ "$CHECK_STATIC_OUTPUT_PLACEMENT_RUNS" -gt 0 ]; then
+            mkdir -p "$BUILD_ROOT/hooks"
+            cp "$FUZZER_SOURCE/hooks/detect_output_placement_changes.py" \
+               "$BUILD_ROOT/hooks/detect_output_placement_changes.py"
           fi
 
           if [ "$UT_RUNS" -gt 0 ] || [ "$YAMLLESS_UT_RUNS" -gt 0 ]; then
@@ -652,6 +774,78 @@ jobs:
               echo "  $BUILD_ROOT/hooks/determinism.py"
             else
               echo "::error::Determinism hook was not installed."
+              exit 1
+            fi
+          fi
+
+          if [ "$NO_RESTRICTIVE_STARTS_RUNS" -gt 0 ]; then
+            if [ -f "$BUILD_ROOT/hooks/with_empty.py" ]; then
+              echo "  $BUILD_ROOT/hooks/with_empty.py"
+            else
+              echo "::error::No-restrictive-starts hook was not installed."
+              exit 1
+            fi
+          fi
+
+          if [ "$CHECK_COLLECT_ACCESSIBILITY_RUNS" -gt 0 ]; then
+            if [ -f "$BUILD_ROOT/hooks/collect_accessibility_test.py" ]; then
+              echo "  $BUILD_ROOT/hooks/collect_accessibility_test.py"
+            else
+              echo "::error::Collect-accessibility hook was not installed."
+              exit 1
+            fi
+          fi
+
+          if [ "$CHECK_GERPOCALYPSE_RUNS" -gt 0 ]; then
+            if [ -f "$BUILD_ROOT/hooks/gerpocalypse.py" ]; then
+              echo "  $BUILD_ROOT/hooks/gerpocalypse.py"
+            else
+              echo "::error::GERPocalypse hook was not installed."
+              exit 1
+            fi
+          fi
+
+          if [ "$CHECK_INDIRECT_CONDITIONS_RUNS" -gt 0 ]; then
+            if [ -f "$BUILD_ROOT/hooks/indirect_conditions.py" ]; then
+              echo "  $BUILD_ROOT/hooks/indirect_conditions.py"
+            else
+              echo "::error::Indirect-conditions hook was not installed."
+              exit 1
+            fi
+          fi
+
+          if [ "$CHECK_ITEM_LOCATION_COUNT_RUNS" -gt 0 ]; then
+            if [ -f "$BUILD_ROOT/hooks/item_location_count.py" ]; then
+              echo "  $BUILD_ROOT/hooks/item_location_count.py"
+            else
+              echo "::error::Item-location-count hook was not installed."
+              exit 1
+            fi
+          fi
+
+          if [ "$CHECK_LAMBDA_CAPTURE_RUNS" -gt 0 ]; then
+            if [ -f "$BUILD_ROOT/hooks/detect_rule_variable_capture_issues.py" ]; then
+              echo "  $BUILD_ROOT/hooks/detect_rule_variable_capture_issues.py"
+            else
+              echo "::error::Lambda-capture hook was not installed."
+              exit 1
+            fi
+          fi
+
+          if [ "$CHECK_PLACEMENT_ITEM_LOCATION_REFS_RUNS" -gt 0 ]; then
+            if [ -f "$BUILD_ROOT/hooks/check_placement_item_location_references.py" ]; then
+              echo "  $BUILD_ROOT/hooks/check_placement_item_location_references.py"
+            else
+              echo "::error::Placement-item-location-reference hook was not installed."
+              exit 1
+            fi
+          fi
+
+          if [ "$CHECK_STATIC_OUTPUT_PLACEMENT_RUNS" -gt 0 ]; then
+            if [ -f "$BUILD_ROOT/hooks/detect_output_placement_changes.py" ]; then
+              echo "  $BUILD_ROOT/hooks/detect_output_placement_changes.py"
+            else
+              echo "::error::Static-output-placement hook was not installed."
               exit 1
             fi
           fi
@@ -1157,9 +1351,17 @@ jobs:
           FUZZER_RUNS: ${{ inputs.normal_fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
           APFUZZ_OUT_DIR: fuzz_output/normal
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
           echo "Running APWorld fuzzer:"
           echo "  Game:    $GAME"
           echo "  World:   $WORLD"
@@ -1172,7 +1374,8 @@ jobs:
             -r "$FUZZER_RUNS" \
             -j "$FUZZER_JOBS" \
             -t "$FUZZER_TIMEOUT" \
-            -g "$WORLD"
+            -g "$WORLD" \
+            "${META_ARGS[@]}"
 
       ######################################################################
       # Run determinism fuzzer
@@ -1187,9 +1390,17 @@ jobs:
           FUZZER_RUNS: ${{ inputs.determinism_fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
           APFUZZ_OUT_DIR: fuzz_output/determinism
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
           JOBS=$((FUZZER_JOBS / 2))
 
           if [ "$JOBS" -lt 1 ]; then
@@ -1211,7 +1422,264 @@ jobs:
             -j "$JOBS" \
             -t "$TIMEOUT" \
             -g "$WORLD" \
+            "${META_ARGS[@]}" \
             --hook hooks.determinism:Hook
+
+      ######################################################################
+      # Run no-restrictive-starts fuzzer
+      ######################################################################
+
+      - name: Run no-restrictive-starts fuzzer
+        if: ${{ inputs.no_restrictive_starts_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.no_restrictive_starts_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
+          APFUZZ_OUT_DIR: fuzz_output/no_restrictive_starts
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$WORLD" \
+            --hook hooks.with_empty:Hook \
+            "${META_ARGS[@]}"
+
+      ######################################################################
+      # Run collect-accessibility fuzzer
+      ######################################################################
+
+      - name: Run collect-accessibility fuzzer
+        if: ${{ inputs.check_collect_accessibility_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.check_collect_accessibility_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
+          APFUZZ_OUT_DIR: fuzz_output/check_collect_accessibility
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$WORLD" \
+            --hook hooks.collect_accessibility_test:Hook \
+            "${META_ARGS[@]}"
+
+      ######################################################################
+      # Run GERPocalypse fuzzer
+      ######################################################################
+
+      - name: Run GERPocalypse fuzzer
+        if: ${{ inputs.check_gerpocalypse_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.check_gerpocalypse_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
+          APFUZZ_OUT_DIR: fuzz_output/check_gerpocalypse
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$WORLD" \
+            --hook hooks.gerpocalypse:Hook \
+            "${META_ARGS[@]}"
+
+      ######################################################################
+      # Run indirect-conditions fuzzer
+      ######################################################################
+
+      - name: Run indirect-conditions fuzzer
+        if: ${{ inputs.check_indirect_conditions_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.check_indirect_conditions_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
+          APFUZZ_OUT_DIR: fuzz_output/check_indirect_conditions
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$WORLD" \
+            --hook hooks.indirect_conditions:Hook \
+            "${META_ARGS[@]}"
+
+      ######################################################################
+      # Run item-location-count fuzzer
+      ######################################################################
+
+      - name: Run item-location-count fuzzer
+        if: ${{ inputs.check_item_location_count_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.check_item_location_count_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
+          APFUZZ_OUT_DIR: fuzz_output/check_item_location_count
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$WORLD" \
+            --hook hooks.item_location_count:Hook \
+            "${META_ARGS[@]}"
+
+      ######################################################################
+      # Run lambda-capture fuzzer
+      ######################################################################
+
+      - name: Run lambda-capture fuzzer
+        if: ${{ inputs.check_lambda_capture_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.check_lambda_capture_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
+          APFUZZ_OUT_DIR: fuzz_output/check_lambda_capture
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$WORLD" \
+            --hook hooks.detect_rule_variable_capture_issues:Hook \
+            "${META_ARGS[@]}"
+
+      ######################################################################
+      # Run placement-item-location-reference fuzzer
+      ######################################################################
+
+      - name: Run placement-item-location-reference fuzzer
+        if: ${{ inputs.check_placement_item_location_refs_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.check_placement_item_location_refs_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
+          APFUZZ_OUT_DIR: fuzz_output/check_placement_item_location_refs
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$WORLD" \
+            --hook hooks.check_placement_item_location_references:Hook \
+            "${META_ARGS[@]}"
+
+      ######################################################################
+      # Run static-output-placement fuzzer
+      ######################################################################
+
+      - name: Run static-output-placement fuzzer
+        if: ${{ inputs.check_static_output_placement_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        env:
+          BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
+          WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          FUZZER_RUNS: ${{ inputs.check_static_output_placement_runs }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
+          APFUZZ_OUT_DIR: fuzz_output/check_static_output_placement
+        working-directory: ${{ steps.build_root.outputs.build_root }}
+        run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
+          python -O fuzz.py \
+            -r "$FUZZER_RUNS" \
+            -j "$FUZZER_JOBS" \
+            -t "$FUZZER_TIMEOUT" \
+            -g "$WORLD" \
+            --hook hooks.detect_output_placement_changes:Hook \
+            "${META_ARGS[@]}"
 
       ######################################################################
       # Run Universal Tracker fuzzer
@@ -1226,9 +1694,17 @@ jobs:
           FUZZER_RUNS: ${{ inputs.ut_fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
           APFUZZ_OUT_DIR: fuzz_output/ut
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
           echo "Running Universal Tracker fuzzer:"
           echo "  Game:    $GAME"
           echo "  World:   $WORLD"
@@ -1242,6 +1718,7 @@ jobs:
             -j "$FUZZER_JOBS" \
             -t "$FUZZER_TIMEOUT" \
             -g "$WORLD" \
+            "${META_ARGS[@]}" \
             --hook worlds.tracker.fuzzer_hook:Hook
 
       ######################################################################
@@ -1257,9 +1734,17 @@ jobs:
           FUZZER_RUNS: ${{ inputs.yamlless_ut_fuzzer_runs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          FUZZER_META: ${{ github.workspace }}/meta.yaml
           APFUZZ_OUT_DIR: fuzz_output/yamlless_ut
         working-directory: ${{ steps.build_root.outputs.build_root }}
         run: |
+          META_ARGS=()
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            META_ARGS=(-m "$FUZZER_META")
+          fi
+
           echo "Running Yamlless Universal Tracker fuzzer:"
           echo "  Game:    $GAME"
           echo "  World:   $WORLD"
@@ -1273,6 +1758,7 @@ jobs:
             -j "$FUZZER_JOBS" \
             -t "$FUZZER_TIMEOUT" \
             -g "$WORLD" \
+            "${META_ARGS[@]}" \
             --hook worlds.tracker.fuzzer_hook:YamllessHook
 
       ######################################################################
@@ -1280,7 +1766,7 @@ jobs:
       ######################################################################
 
       - name: Fuzzer summary
-        if: ${{ always() && (inputs.normal_fuzzer_runs > 0 || inputs.determinism_fuzzer_runs > 0 || inputs.ut_fuzzer_runs > 0 || inputs.yamlless_ut_fuzzer_runs > 0) }}
+        if: ${{ always() && (inputs.normal_fuzzer_runs > 0 || inputs.determinism_fuzzer_runs > 0 || inputs.no_restrictive_starts_runs > 0 || inputs.check_collect_accessibility_runs > 0 || inputs.check_gerpocalypse_runs > 0 || inputs.check_indirect_conditions_runs > 0 || inputs.check_item_location_count_runs > 0 || inputs.check_lambda_capture_runs > 0 || inputs.check_placement_item_location_refs_runs > 0 || inputs.check_static_output_placement_runs > 0 || inputs.ut_fuzzer_runs > 0 || inputs.yamlless_ut_fuzzer_runs > 0) }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1296,6 +1782,14 @@ jobs:
           fuzzers = [
               ("normal", "Normal Fuzzer"),
               ("determinism", "Determinism Fuzzer"),
+              ("no_restrictive_starts", "No Restrictive Starts Fuzzer"),
+              ("check_collect_accessibility", "Collect Accessibility Fuzzer"),
+              ("check_gerpocalypse", "GERPocalypse Fuzzer"),
+              ("check_indirect_conditions", "Indirect Conditions Fuzzer"),
+              ("check_item_location_count", "Item Location Count Fuzzer"),
+              ("check_lambda_capture", "Lambda Capture Fuzzer"),
+              ("check_placement_item_location_refs", "Placement Item/Location References Fuzzer"),
+              ("check_static_output_placement", "Static Output Placement Fuzzer"),
               ("ut", "Universal Tracker Fuzzer"),
               ("yamlless_ut", "Yamlless UT Fuzzer"),
           ]
@@ -1386,8 +1880,17 @@ jobs:
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           DETERMINISM_RUNS: ${{ inputs.determinism_fuzzer_runs }}
+          NO_RESTRICTIVE_STARTS_RUNS: ${{ inputs.no_restrictive_starts_runs }}
+          CHECK_COLLECT_ACCESSIBILITY_RUNS: ${{ inputs.check_collect_accessibility_runs }}
+          CHECK_GERPOCALYPSE_RUNS: ${{ inputs.check_gerpocalypse_runs }}
+          CHECK_INDIRECT_CONDITIONS_RUNS: ${{ inputs.check_indirect_conditions_runs }}
+          CHECK_ITEM_LOCATION_COUNT_RUNS: ${{ inputs.check_item_location_count_runs }}
+          CHECK_LAMBDA_CAPTURE_RUNS: ${{ inputs.check_lambda_capture_runs }}
+          CHECK_PLACEMENT_ITEM_LOCATION_REFS_RUNS: ${{ inputs.check_placement_item_location_refs_runs }}
+          CHECK_STATIC_OUTPUT_PLACEMENT_RUNS: ${{ inputs.check_static_output_placement_runs }}
           UT_RUNS: ${{ inputs.ut_fuzzer_runs }}
           YAMLLESS_UT_RUNS: ${{ inputs.yamlless_ut_fuzzer_runs }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
         run: |
           rm -f "$BUILD_ROOT/fuzz.py"
 
@@ -1396,9 +1899,49 @@ jobs:
             rmdir "$BUILD_ROOT/hooks" 2>/dev/null || true
           fi
 
+          if [ "$NO_RESTRICTIVE_STARTS_RUNS" -gt 0 ]; then
+            rm -f "$BUILD_ROOT/hooks/with_empty.py"
+          fi
+
+          if [ "$CHECK_COLLECT_ACCESSIBILITY_RUNS" -gt 0 ]; then
+            rm -f "$BUILD_ROOT/hooks/collect_accessibility_test.py"
+          fi
+
+          if [ "$CHECK_GERPOCALYPSE_RUNS" -gt 0 ]; then
+            rm -f "$BUILD_ROOT/hooks/gerpocalypse.py"
+          fi
+
+          if [ "$CHECK_INDIRECT_CONDITIONS_RUNS" -gt 0 ]; then
+            rm -f "$BUILD_ROOT/hooks/indirect_conditions.py"
+          fi
+
+          if [ "$CHECK_ITEM_LOCATION_COUNT_RUNS" -gt 0 ]; then
+            rm -f "$BUILD_ROOT/hooks/item_location_count.py"
+          fi
+
+          if [ "$CHECK_LAMBDA_CAPTURE_RUNS" -gt 0 ]; then
+            rm -f "$BUILD_ROOT/hooks/detect_rule_variable_capture_issues.py"
+          fi
+
+          if [ "$CHECK_PLACEMENT_ITEM_LOCATION_REFS_RUNS" -gt 0 ]; then
+            rm -f "$BUILD_ROOT/hooks/check_placement_item_location_references.py"
+          fi
+
+          if [ "$CHECK_STATIC_OUTPUT_PLACEMENT_RUNS" -gt 0 ]; then
+            rm -f "$BUILD_ROOT/hooks/detect_output_placement_changes.py"
+          fi
+
           if [ "$UT_RUNS" -gt 0 ] || [ "$YAMLLESS_UT_RUNS" -gt 0 ]; then
             rm -rf "$BUILD_ROOT/worlds/tracker"
           fi
+
+          if [ "$USE_FUZZER_META" = "true" ]; then
+            # meta.yaml lives in the source repository and was never copied
+            # into BUILD_ROOT, so there is nothing to remove here.
+            :
+          fi
+
+          rmdir "$BUILD_ROOT/hooks" 2>/dev/null || true
 
       ######################################################################
       # Unit tests
