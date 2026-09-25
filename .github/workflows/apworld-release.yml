@@ -42,6 +42,18 @@ on:
         required: false
         default: ""
 
+      flags:
+        description: |
+          Add manifest flags as a comma-separated list. Like: "after_dark, tracker_included". ("unready" is added if only pre-releases exist):
+        required: false
+        default: ""
+
+      authors:
+        description: |
+          Override authors as a comma-separated list:
+        required: false
+        default: ""
+
       minimum_ap_version:
         description: |
           Override minimum Archipelago version (blank = keep current):
@@ -51,12 +63,6 @@ on:
       maximum_ap_version:
         description: |
           Override maximum Archipelago version (blank = keep current):
-        required: false
-        default: ""
-
-      authors:
-        description: |
-          Override authors as a comma-separated list:
         required: false
         default: ""
 
@@ -642,6 +648,62 @@ jobs:
           fi
 
       ######################################################################
+      # Determine APWorld readiness
+      ######################################################################
+
+      - name: Determine APWorld readiness
+        id: readiness
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORLD: ${{ steps.world.outputs.world }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          RELEASES=$(gh release list \
+            --limit 200 \
+            --json tagName,isDraft,isPrerelease \
+            --jq "
+              [
+                .[]
+                | select(.isDraft == false)
+                | select(.tagName | startswith(\"${WORLD}-v\"))
+              ]
+            ")
+
+          STABLE_COUNT=$(jq \
+            '[.[] | select(.isPrerelease == false)] | length' \
+            <<< "$RELEASES")
+
+          PRERELEASE_COUNT=$(jq \
+            '[.[] | select(.isPrerelease == true)] | length' \
+            <<< "$RELEASES")
+
+          ADD_UNREADY=false
+          REMOVE_UNREADY=false
+
+          # No stable release exists yet and the release being created
+          # is a prerelease -> world is still unready.
+          if [ "$STABLE_COUNT" -eq 0 ] && \
+             [ "$PRERELEASE" = "true" ]; then
+            ADD_UNREADY=true
+          fi
+
+          # The world previously had only prereleases and we are now
+          # creating the first stable release -> remove unready.
+          if [ "$STABLE_COUNT" -eq 0 ] && \
+             [ "$PRERELEASE_COUNT" -gt 0 ] && \
+             [ "$PRERELEASE" = "false" ]; then
+            REMOVE_UNREADY=true
+          fi
+
+          echo "Stable releases:     $STABLE_COUNT"
+          echo "Prerelease releases: $PRERELEASE_COUNT"
+          echo "Add unready:         $ADD_UNREADY"
+          echo "Remove unready:      $REMOVE_UNREADY"
+
+          echo "add_unready=$ADD_UNREADY" >> "$GITHUB_OUTPUT"
+          echo "remove_unready=$REMOVE_UNREADY" >> "$GITHUB_OUTPUT"
+
+      ######################################################################
       # Read / create / update manifest
       ######################################################################
 
@@ -653,15 +715,19 @@ jobs:
           BUMP: ${{ inputs.bump }}
           OVERRIDE_VERSION: ${{ inputs.world_version }}
           GAME_OVERRIDE: ${{ inputs.game }}
+          AUTHORS: ${{ inputs.authors }}
           MINIMUM: ${{ inputs.minimum_ap_version }}
           MAXIMUM: ${{ inputs.maximum_ap_version }}
-          AUTHORS: ${{ inputs.authors }}
           CLAMP: ${{ inputs.clamp_minimum_ap_version }}
+          FLAGS_INPUT: ${{ inputs.flags }}
+          ADD_UNREADY: ${{ steps.readiness.outputs.add_unready }}
+          REMOVE_UNREADY: ${{ steps.readiness.outputs.remove_unready }}
           STABLE_AP: ${{ steps.stable_ap.outputs.version }}
         run: |
           python <<'PY'
           import json
           import os
+          import re
           from pathlib import Path
 
           world = os.environ["WORLD"]
@@ -779,6 +845,57 @@ jobs:
                   for author in os.environ["AUTHORS"].split(",")
                   if author.strip()
               ]
+
+          # --------------------------------------------------------------
+          # Flags
+          # --------------------------------------------------------------
+
+          flags_input = os.environ["FLAGS_INPUT"].strip()
+
+          existing_flags = manifest.get("flags", [])
+
+          if not isinstance(existing_flags, list) or not all(
+              isinstance(flag, str)
+              for flag in existing_flags
+          ):
+              raise SystemExit(
+                  "'flags' in archipelago.json must be a list of strings."
+              )
+
+          flags = existing_flags.copy()
+
+          if flags_input:
+              for flag in flags_input.split(","):
+                  flag = flag.strip()
+
+                  if not flag:
+                      continue
+
+                  if not re.fullmatch(r"[A-Za-z0-9_-]+", flag):
+                      raise SystemExit(
+                          f"Invalid manifest flag: {flag}"
+                      )
+
+                  if flag not in flags:
+                      flags.append(flag)
+
+          # --------------------------------------------------------------
+          # Automatic unready handling
+          # --------------------------------------------------------------
+
+          if os.environ["ADD_UNREADY"] == "true":
+              if "unready" not in flags:
+                  flags.append("unready")
+
+          elif os.environ["REMOVE_UNREADY"] == "true":
+              flags = [
+                  flag
+                  for flag in flags
+                  if flag != "unready"
+              ]
+
+          if flags or "flags" in manifest:
+              manifest["flags"] = flags
 
           # --------------------------------------------------------------
           # Clamp minimum AP version
