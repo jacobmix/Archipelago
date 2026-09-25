@@ -1422,8 +1422,8 @@ jobs:
             -j "$JOBS" \
             -t "$TIMEOUT" \
             -g "$WORLD" \
-            "${META_ARGS[@]}" \
-            --hook hooks.determinism:Hook
+            --hook hooks.determinism:Hook \
+            "${META_ARGS[@]}"
 
       ######################################################################
       # Run no-restrictive-starts fuzzer
@@ -1718,8 +1718,8 @@ jobs:
             -j "$FUZZER_JOBS" \
             -t "$FUZZER_TIMEOUT" \
             -g "$WORLD" \
-            "${META_ARGS[@]}" \
-            --hook worlds.tracker.fuzzer_hook:Hook
+            --hook worlds.tracker.fuzzer_hook:Hook \
+            "${META_ARGS[@]}"
 
       ######################################################################
       # Run Yamlless Universal Tracker fuzzer
@@ -1758,8 +1758,8 @@ jobs:
             -j "$FUZZER_JOBS" \
             -t "$FUZZER_TIMEOUT" \
             -g "$WORLD" \
-            "${META_ARGS[@]}" \
-            --hook worlds.tracker.fuzzer_hook:YamllessHook
+            --hook worlds.tracker.fuzzer_hook:YamllessHook \
+            "${META_ARGS[@]}"
 
       ######################################################################
       # Fuzzer summary
