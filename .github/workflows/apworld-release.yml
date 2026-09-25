@@ -44,7 +44,7 @@ on:
 
       flags:
         description: |
-          Add manifest flags as a comma-separated list. Like: "after_dark, tracker_included". ("unready" is added if only pre-releases exist):
+          Add manifest flags as a comma-separated list. Like: "supports_deathlink, tracker_included". ("unready" is auto added if only pre-releases exist):
         required: false
         default: ""
 
