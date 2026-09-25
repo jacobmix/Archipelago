@@ -1,3 +1,23 @@
+# Be free to use, copy or share this workflow.
+# You can change defaults or add sections.
+# Each branch can have their own completely different workflow.
+# 
+# Recommend using a workflow like this to keep proper releases easy to make.
+# Good for indexers like:
+# <https://github.com/silasary/apworlds>
+# <https://github.com/ionium-ap/Archipelago-index>
+# 
+# To do:
+# Add more comments
+# Explain archipelago/workflow setup
+# Mention some standards & tips + link docs
+# Like .apignore‎ exclusions.
+# Get more out of propper versions like:
+# <https://github.com/jacobmix/Archipelago/blob/rac2/worlds/rac2/__init__.py#L23-L34>
+# <https://github.com/jacobmix/Archipelago/blob/rac2/worlds/rac2/Rac2Client.py#L396-L418>
+# More fuzzing
+# Basic support to include mod files or such. (Would be too specific to do much. Just seperate changelog, pick release mod/ap, keep both in release regardless, ect)
+
 name: APWorld Release
 
 on:
