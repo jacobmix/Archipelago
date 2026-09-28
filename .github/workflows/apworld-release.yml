@@ -123,6 +123,27 @@ on:
         type: boolean
         default: false
 
+      # WIP replacement for fuzzer inputs
+      fuzzer_config:
+        description: |
+          Fuzzer configuration. One fuzzer per line:
+          NAME=RUNS
+        default: |
+          normal=0
+          determinism=0
+          no_restrictive_starts=0
+          check_collect_accessibility=0
+          check_gerpocalypse=0
+          check_indirect_conditions=0
+          check_item_location_count=0
+          check_lambda_capture=0
+          check_placement_item_location_refs=0
+          check_static_output_placement=0
+          ut=0
+          yamlless_ut=0
+        required: false
+
+
       normal_fuzzer_runs:
         description: |
           Number of normal fuzzer generations (0 = disabled).
