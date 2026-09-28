@@ -1,3 +1,5 @@
+name: APWorld Release
+
 # Be free to use, copy, edit or share this workflow.
 # You can change defaults or add sections.
 # Each branch can have their own completely different workflow.
@@ -17,8 +19,6 @@
 # <https://github.com/jacobmix/Archipelago/blob/rac2/worlds/rac2/Rac2Client.py#L396-L418>
 # More fuzzing
 # Basic support to include mod files or such. (Would be too specific to do much. Just seperate changelog, pick release mod/ap, keep both in release regardless, ect)
-
-name: APWorld Release
 
 on:
   workflow_dispatch:
