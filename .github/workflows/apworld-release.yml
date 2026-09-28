@@ -19,6 +19,7 @@ name: APWorld Release
 # <https://github.com/jacobmix/Archipelago/blob/rac2/worlds/rac2/Rac2Client.py#L396-L418>
 # More fuzzing
 # Basic support to include mod files or such. (Would be too specific to do much. Just seperate changelog, pick release mod/ap, keep both in release regardless, ect)
+# Keep inputs at 25 or below. (Consolidate fuzzers?)
 
 on:
   workflow_dispatch:
