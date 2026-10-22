@@ -1361,7 +1361,7 @@ jobs:
       ######################################################################
 
       - name: Run fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.normal > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.normal > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1400,7 +1400,7 @@ jobs:
       ######################################################################
 
       - name: Run determinism fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.determinism > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.determinism > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1448,7 +1448,7 @@ jobs:
       ######################################################################
 
       - name: Run no-restrictive-starts fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.no_restrictive_starts > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.no_restrictive_starts > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1480,7 +1480,7 @@ jobs:
       ######################################################################
 
       - name: Run collect-accessibility fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.check_collect_accessibility > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.check_collect_accessibility > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1512,7 +1512,7 @@ jobs:
       ######################################################################
 
       - name: Run GERPocalypse fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.check_gerpocalypse > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.check_gerpocalypse > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1544,7 +1544,7 @@ jobs:
       ######################################################################
 
       - name: Run indirect-conditions fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.check_indirect_conditions > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.check_indirect_conditions > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1576,7 +1576,7 @@ jobs:
       ######################################################################
 
       - name: Run item-location-count fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.check_item_location_count > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.check_item_location_count > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1608,7 +1608,7 @@ jobs:
       ######################################################################
 
       - name: Run lambda-capture fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.check_lambda_capture > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.check_lambda_capture > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1640,7 +1640,7 @@ jobs:
       ######################################################################
 
       - name: Run placement-item-location-reference fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.check_placement_item_location_refs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.check_placement_item_location_refs > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1672,7 +1672,7 @@ jobs:
       ######################################################################
 
       - name: Run static-output-placement fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.check_static_output_placement > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.check_static_output_placement > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1704,7 +1704,7 @@ jobs:
       ######################################################################
 
       - name: Run UT fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.ut > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.ut > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1744,7 +1744,7 @@ jobs:
       ######################################################################
 
       - name: Run Yamlless UT fuzzer
-        if: ${{ steps.fuzzer_preset.outputs.yamlless_ut > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.fuzzer_preset.outputs.yamlless_ut > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1819,6 +1819,15 @@ jobs:
           ]
 
           print(f"## APWorld Fuzzer Results — `{world}`")
+          print()
+
+          print(f"**Preset:** {os.environ['FUZZER_PRESET']}")
+          print(f"**Parallel workers:** {os.environ['FUZZER_JOBS']}")
+          print(f"**Max time per generation:** {os.environ['FUZZER_TIMEOUT']} seconds")
+          meta_status = "enabled" if os.environ['USE_FUZZER_META'] == "true" else "disabled"
+          print(f"**meta.yaml:** {meta_status}")
+          if int(os.environ['DETERMINISM_RUNS']) > 0:
+              print("**Determinism settings:** half the configured workers (minimum 1); double the time limit")
           print()
 
           found_any = False
