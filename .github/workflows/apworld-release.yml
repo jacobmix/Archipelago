@@ -1788,9 +1788,15 @@ jobs:
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
+          FUZZER_PRESET: ${{ inputs.fuzzer_preset }}
+          FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
+          FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
+          USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
+          DETERMINISM_RUNS: ${{ steps.fuzzer_preset.outputs.determinism }}
         run: |
           python - "$BUILD_ROOT/fuzz_output" "$WORLD" <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
+          import os
           import sys
           from pathlib import Path
 
@@ -1919,6 +1925,10 @@ jobs:
 
           if [ "$NO_RESTRICTIVE_STARTS_RUNS" -gt 0 ]; then
             rm -f "$BUILD_ROOT/hooks/with_empty.py"
+
+            if [ -f "$BUILD_ROOT/worlds/empty/.apworld-release-fuzzer-fixture" ]; then
+              rm -rf "$BUILD_ROOT/worlds/empty"
+            fi
           fi
 
           if [ "$CHECK_COLLECT_ACCESSIBILITY_RUNS" -gt 0 ]; then
