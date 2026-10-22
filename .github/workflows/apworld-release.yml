@@ -19,7 +19,7 @@ name: APWorld Release
 # <https://github.com/jacobmix/Archipelago/blob/rac2/worlds/rac2/Rac2Client.py#L396-L418>
 # Add & explain basic support to include mod files or such. (Won't be too specific. Just seperate changelog, pick release mod/ap, keep both in release regardless, title, ect)
 # Test & make more fuzzer presets (Consolidated fuzzers)
-# Include steps for how to setup self-hosted runner.
+# Include steps for how to setup self-hosted runner: https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners (Or at least warn/stop 1000 fuzzers from working without it/paying for more GitHub Actions)
 
 on:
   workflow_dispatch:
@@ -682,6 +682,25 @@ jobs:
             mkdir -p "$BUILD_ROOT/hooks"
             cp "$FUZZER_SOURCE/hooks/with_empty.py" \
                "$BUILD_ROOT/hooks/with_empty.py"
+
+            # The upstream hook expects an Empty APWorld from its /ap container.
+            # Register a temporary empty loose world for this GitHub Actions runner.
+            EMPTY_WORLD_DIR="$BUILD_ROOT/worlds/empty"
+            if [ ! -e "$EMPTY_WORLD_DIR" ]; then
+              mkdir -p "$EMPTY_WORLD_DIR"
+              cat > "$EMPTY_WORLD_DIR/__init__.py" <<'EMPTY_WORLD_PY'
+          from worlds.AutoWorld import World
+
+          class EmptyWorld(World):
+              game = "Empty"
+              item_name_to_id = {}
+              location_name_to_id = {}
+          EMPTY_WORLD_PY
+              touch "$EMPTY_WORLD_DIR/.apworld-release-fuzzer-fixture"
+              echo "Installed temporary Empty world for no-restrictive-starts fuzzing."
+            else
+              echo "Using existing $EMPTY_WORLD_DIR for no-restrictive-starts fuzzing."
+            fi
           fi
 
           if [ "$CHECK_COLLECT_ACCESSIBILITY_RUNS" -gt 0 ]; then
