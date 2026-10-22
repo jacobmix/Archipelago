@@ -19,7 +19,7 @@ name: APWorld Release
 # <https://github.com/jacobmix/Archipelago/blob/rac2/worlds/rac2/Rac2Client.py#L396-L418>
 # Add & explain basic support to include mod files or such. (Won't be too specific. Just seperate changelog, pick release mod/ap, keep both in release regardless, title, ect)
 # Test & make more fuzzer presets (Consolidated fuzzers)
-# Include steps for how to setup self-hosted runner.
+# Include steps for how to setup self-hosted runner: https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners (Or at least warn/stop 1000 fuzzers from working without it/paying for more GitHub Actions)
 
 on:
   workflow_dispatch:
