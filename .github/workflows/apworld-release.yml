@@ -17,9 +17,9 @@ name: APWorld Release
 # Get more out of propper versions like:
 # <https://github.com/jacobmix/Archipelago/blob/rac2/worlds/rac2/__init__.py#L23-L34>
 # <https://github.com/jacobmix/Archipelago/blob/rac2/worlds/rac2/Rac2Client.py#L396-L418>
-# More fuzzing
-# Basic support to include mod files or such. (Would be too specific to do much. Just seperate changelog, pick release mod/ap, keep both in release regardless, ect)
-# Keep inputs at 25 or below. (Consolidate fuzzers?)
+# Add & explain basic support to include mod files or such. (Won't be too specific. Just seperate changelog, pick release mod/ap, keep both in release regardless, title, ect)
+# Test & make more fuzzer presets (Consolidated fuzzers)
+# Include steps for how to setup self-hosted runner.
 
 on:
   workflow_dispatch:
@@ -123,101 +123,17 @@ on:
         type: boolean
         default: false
 
-      # WIP replacement for fuzzer inputs
-      fuzzer_config:
-        description: |
-          Fuzzer runs as JSON. 0 or omitted = disabled.
-          Example: {"normal":10,"determinism":5}
-        required: false
-        default: |
-          {
-          "normal": 0, 
-          "determinism": 0, 
-          "no_restrictive_starts": 0, 
-          "check_collect_accessibility": 0, 
-          "check_gerpocalypse": 0, 
-          "check_indirect_conditions": 0, 
-          "check_item_location_count": 0, 
-          "check_lambda_capture": 0, 
-          "check_placement_item_location_refs": 0, 
-          "check_static_output_placement": 0, 
-          "ut": 0, 
-          "yamlless_ut": 0
-          }
-        required: false
-
-
-      normal_fuzzer_runs:
-        description: |
-          Number of normal fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-
-      determinism_fuzzer_runs:
-        description: |
-          Number of determinism fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-
-      no_restrictive_starts_runs:
-        description: |
-          Number of no-restrictive-starts fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-      
-      check_collect_accessibility_runs:
-        description: |
-          Number of collect-accessibility fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-      
-      check_gerpocalypse_runs:
-        description: |
-          Number of GERPocalypse fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-      
-      check_indirect_conditions_runs:
-        description: |
-          Number of indirect-conditions fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-      
-      check_item_location_count_runs:
-        description: |
-          Number of item-location-count fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-      
-      check_lambda_capture_runs:
-        description: |
-          Number of lambda-capture fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-      
-      check_placement_item_location_refs_runs:
-        description: |
-          Number of placement-item-location-reference fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-      
-      check_static_output_placement_runs:
-        description: |
-          Number of static-output-placement fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-
-      ut_fuzzer_runs:
-        description: |
-          Number of Universal Tracker fuzzer generations (0 = disabled).
-        type: number
-        default: 0
-
-      yamlless_ut_fuzzer_runs:
-        description: |
-          Number of Yamlless UT fuzzer generations (0 = disabled).
-        type: number
-        default: 0
+      fuzzer_preset:
+        description: Fuzzer preset (presets are defined in the workflow)
+        type: choice
+        default: "None"
+        options:
+          - "None"
+          - "Smoke"
+          - "All at 100"
+          - "All at 500"
+          - "All at 1000"
+          - "Normal only at 100"
 
       fuzzer_jobs:
         description: |
@@ -647,25 +563,83 @@ jobs:
           PY
 
       ######################################################################
+      # Resolve selected fuzzer preset
+      ######################################################################
+
+      - name: Resolve fuzzer preset
+        id: fuzzer_preset
+        env:
+          FUZZER_PRESET: ${{ inputs.fuzzer_preset }}
+        run: |
+          python <<'PY'
+          import os
+
+          fuzzers = (
+              "normal",
+              "determinism",
+              "no_restrictive_starts",
+              "check_collect_accessibility",
+              "check_gerpocalypse",
+              "check_indirect_conditions",
+              "check_item_location_count",
+              "check_lambda_capture",
+              "check_placement_item_location_refs",
+              "check_static_output_placement",
+              "ut",
+              "yamlless_ut",
+          )
+
+          def preset(**overrides):
+              config = dict.fromkeys(fuzzers, 0)
+              config.update(overrides)
+              return config
+
+          # Add or edit presets here. Every fuzzer defaults to disabled.
+          presets = {
+              "None": preset(),
+              "Smoke": preset(
+                  normal=10,
+                  determinism=5,
+                  check_collect_accessibility=5,
+              ),
+              "All at 100": {name: 100 for name in fuzzers},
+              "All at 500": {name: 500 for name in fuzzers},
+              "All at 1000": {name: 1000 for name in fuzzers},
+              "Normal only at 100": preset(normal=100),
+          }
+
+          selected = os.environ["FUZZER_PRESET"]
+          if selected not in presets:
+              raise SystemExit(f"Unknown fuzzer preset: {selected}")
+
+          config = presets[selected]
+          print(f"Selected fuzzer preset: {selected}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              for name in fuzzers:
+                  print(f"{name}={config[name]}", file=output)
+                  print(f"{name}: {config[name]} runs")
+          PY
+
+      ######################################################################
       # Prepare fuzzer support
       ######################################################################
 
       - name: Prepare fuzzer support
-        if: ${{ inputs.normal_fuzzer_runs > 0 || inputs.determinism_fuzzer_runs > 0 || inputs.no_restrictive_starts_runs > 0 || inputs.check_collect_accessibility_runs > 0 || inputs.check_gerpocalypse_runs > 0 || inputs.check_indirect_conditions_runs > 0 || inputs.check_item_location_count_runs > 0 || inputs.check_lambda_capture_runs > 0 || inputs.check_placement_item_location_refs_runs > 0 || inputs.check_static_output_placement_runs > 0 || inputs.ut_fuzzer_runs > 0 || inputs.yamlless_ut_fuzzer_runs > 0 }}
+        if: ${{ steps.fuzzer_preset.outputs.normal > 0 || steps.fuzzer_preset.outputs.determinism > 0 || steps.fuzzer_preset.outputs.no_restrictive_starts > 0 || steps.fuzzer_preset.outputs.check_collect_accessibility > 0 || steps.fuzzer_preset.outputs.check_gerpocalypse > 0 || steps.fuzzer_preset.outputs.check_indirect_conditions > 0 || steps.fuzzer_preset.outputs.check_item_location_count > 0 || steps.fuzzer_preset.outputs.check_lambda_capture > 0 || steps.fuzzer_preset.outputs.check_placement_item_location_refs > 0 || steps.fuzzer_preset.outputs.check_static_output_placement > 0 || steps.fuzzer_preset.outputs.ut > 0 || steps.fuzzer_preset.outputs.yamlless_ut > 0 }}
         id: fuzzer_support
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-          DETERMINISM_RUNS: ${{ inputs.determinism_fuzzer_runs }}
-          NO_RESTRICTIVE_STARTS_RUNS: ${{ inputs.no_restrictive_starts_runs }}
-          CHECK_COLLECT_ACCESSIBILITY_RUNS: ${{ inputs.check_collect_accessibility_runs }}
-          CHECK_GERPOCALYPSE_RUNS: ${{ inputs.check_gerpocalypse_runs }}
-          CHECK_INDIRECT_CONDITIONS_RUNS: ${{ inputs.check_indirect_conditions_runs }}
-          CHECK_ITEM_LOCATION_COUNT_RUNS: ${{ inputs.check_item_location_count_runs }}
-          CHECK_LAMBDA_CAPTURE_RUNS: ${{ inputs.check_lambda_capture_runs }}
-          CHECK_PLACEMENT_ITEM_LOCATION_REFS_RUNS: ${{ inputs.check_placement_item_location_refs_runs }}
-          CHECK_STATIC_OUTPUT_PLACEMENT_RUNS: ${{ inputs.check_static_output_placement_runs }}
-          UT_RUNS: ${{ inputs.ut_fuzzer_runs }}
-          YAMLLESS_UT_RUNS: ${{ inputs.yamlless_ut_fuzzer_runs }}
+          DETERMINISM_RUNS: ${{ steps.fuzzer_preset.outputs.determinism }}
+          NO_RESTRICTIVE_STARTS_RUNS: ${{ steps.fuzzer_preset.outputs.no_restrictive_starts }}
+          CHECK_COLLECT_ACCESSIBILITY_RUNS: ${{ steps.fuzzer_preset.outputs.check_collect_accessibility }}
+          CHECK_GERPOCALYPSE_RUNS: ${{ steps.fuzzer_preset.outputs.check_gerpocalypse }}
+          CHECK_INDIRECT_CONDITIONS_RUNS: ${{ steps.fuzzer_preset.outputs.check_indirect_conditions }}
+          CHECK_ITEM_LOCATION_COUNT_RUNS: ${{ steps.fuzzer_preset.outputs.check_item_location_count }}
+          CHECK_LAMBDA_CAPTURE_RUNS: ${{ steps.fuzzer_preset.outputs.check_lambda_capture }}
+          CHECK_PLACEMENT_ITEM_LOCATION_REFS_RUNS: ${{ steps.fuzzer_preset.outputs.check_placement_item_location_refs }}
+          CHECK_STATIC_OUTPUT_PLACEMENT_RUNS: ${{ steps.fuzzer_preset.outputs.check_static_output_placement }}
+          UT_RUNS: ${{ steps.fuzzer_preset.outputs.ut }}
+          YAMLLESS_UT_RUNS: ${{ steps.fuzzer_preset.outputs.yamlless_ut }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
           FUZZER_META: ${{ github.workspace }}/meta.yaml
         run: |
@@ -1368,12 +1342,12 @@ jobs:
       ######################################################################
 
       - name: Run fuzzer
-        if: ${{ inputs.normal_fuzzer_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.normal > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.normal_fuzzer_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.normal }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1407,12 +1381,12 @@ jobs:
       ######################################################################
 
       - name: Run determinism fuzzer
-        if: ${{ inputs.determinism_fuzzer_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.determinism > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.determinism_fuzzer_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.determinism }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1455,12 +1429,12 @@ jobs:
       ######################################################################
 
       - name: Run no-restrictive-starts fuzzer
-        if: ${{ inputs.no_restrictive_starts_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.no_restrictive_starts > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.no_restrictive_starts_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.no_restrictive_starts }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1487,12 +1461,12 @@ jobs:
       ######################################################################
 
       - name: Run collect-accessibility fuzzer
-        if: ${{ inputs.check_collect_accessibility_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.check_collect_accessibility > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.check_collect_accessibility_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.check_collect_accessibility }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1519,12 +1493,12 @@ jobs:
       ######################################################################
 
       - name: Run GERPocalypse fuzzer
-        if: ${{ inputs.check_gerpocalypse_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.check_gerpocalypse > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.check_gerpocalypse_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.check_gerpocalypse }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1551,12 +1525,12 @@ jobs:
       ######################################################################
 
       - name: Run indirect-conditions fuzzer
-        if: ${{ inputs.check_indirect_conditions_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.check_indirect_conditions > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.check_indirect_conditions_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.check_indirect_conditions }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1583,12 +1557,12 @@ jobs:
       ######################################################################
 
       - name: Run item-location-count fuzzer
-        if: ${{ inputs.check_item_location_count_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.check_item_location_count > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.check_item_location_count_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.check_item_location_count }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1615,12 +1589,12 @@ jobs:
       ######################################################################
 
       - name: Run lambda-capture fuzzer
-        if: ${{ inputs.check_lambda_capture_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.check_lambda_capture > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.check_lambda_capture_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.check_lambda_capture }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1647,12 +1621,12 @@ jobs:
       ######################################################################
 
       - name: Run placement-item-location-reference fuzzer
-        if: ${{ inputs.check_placement_item_location_refs_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.check_placement_item_location_refs > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.check_placement_item_location_refs_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.check_placement_item_location_refs }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1679,12 +1653,12 @@ jobs:
       ######################################################################
 
       - name: Run static-output-placement fuzzer
-        if: ${{ inputs.check_static_output_placement_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.check_static_output_placement > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.check_static_output_placement_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.check_static_output_placement }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1711,12 +1685,12 @@ jobs:
       ######################################################################
 
       - name: Run UT fuzzer
-        if: ${{ inputs.ut_fuzzer_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.ut > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.ut_fuzzer_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.ut }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1751,12 +1725,12 @@ jobs:
       ######################################################################
 
       - name: Run Yamlless UT fuzzer
-        if: ${{ inputs.yamlless_ut_fuzzer_runs > 0 && steps.fuzzer_support.outcome == 'success' }}
+        if: ${{ steps.fuzzer_preset.outputs.yamlless_ut > 0 && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          FUZZER_RUNS: ${{ inputs.yamlless_ut_fuzzer_runs }}
+          FUZZER_RUNS: ${{ steps.fuzzer_preset.outputs.yamlless_ut }}
           FUZZER_JOBS: ${{ inputs.fuzzer_jobs }}
           FUZZER_TIMEOUT: ${{ inputs.fuzzer_timeout }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
@@ -1791,7 +1765,7 @@ jobs:
       ######################################################################
 
       - name: Fuzzer summary
-        if: ${{ always() && (inputs.normal_fuzzer_runs > 0 || inputs.determinism_fuzzer_runs > 0 || inputs.no_restrictive_starts_runs > 0 || inputs.check_collect_accessibility_runs > 0 || inputs.check_gerpocalypse_runs > 0 || inputs.check_indirect_conditions_runs > 0 || inputs.check_item_location_count_runs > 0 || inputs.check_lambda_capture_runs > 0 || inputs.check_placement_item_location_refs_runs > 0 || inputs.check_static_output_placement_runs > 0 || inputs.ut_fuzzer_runs > 0 || inputs.yamlless_ut_fuzzer_runs > 0) }}
+        if: ${{ always() && (steps.fuzzer_preset.outputs.normal > 0 || steps.fuzzer_preset.outputs.determinism > 0 || steps.fuzzer_preset.outputs.no_restrictive_starts > 0 || steps.fuzzer_preset.outputs.check_collect_accessibility > 0 || steps.fuzzer_preset.outputs.check_gerpocalypse > 0 || steps.fuzzer_preset.outputs.check_indirect_conditions > 0 || steps.fuzzer_preset.outputs.check_item_location_count > 0 || steps.fuzzer_preset.outputs.check_lambda_capture > 0 || steps.fuzzer_preset.outputs.check_placement_item_location_refs > 0 || steps.fuzzer_preset.outputs.check_static_output_placement > 0 || steps.fuzzer_preset.outputs.ut > 0 || steps.fuzzer_preset.outputs.yamlless_ut > 0) }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
@@ -1889,7 +1863,7 @@ jobs:
       ######################################################################
 
       - name: Upload fuzzer output
-        if: ${{ always() && (inputs.normal_fuzzer_runs > 0 || inputs.determinism_fuzzer_runs > 0 || inputs.ut_fuzzer_runs > 0 || inputs.yamlless_ut_fuzzer_runs > 0) }}
+        if: ${{ always() && (steps.fuzzer_preset.outputs.normal > 0 || steps.fuzzer_preset.outputs.determinism > 0 || steps.fuzzer_preset.outputs.no_restrictive_starts > 0 || steps.fuzzer_preset.outputs.check_collect_accessibility > 0 || steps.fuzzer_preset.outputs.check_gerpocalypse > 0 || steps.fuzzer_preset.outputs.check_indirect_conditions > 0 || steps.fuzzer_preset.outputs.check_item_location_count > 0 || steps.fuzzer_preset.outputs.check_lambda_capture > 0 || steps.fuzzer_preset.outputs.check_placement_item_location_refs > 0 || steps.fuzzer_preset.outputs.check_static_output_placement > 0 || steps.fuzzer_preset.outputs.ut > 0 || steps.fuzzer_preset.outputs.yamlless_ut > 0) }}
         uses: actions/upload-artifact@v4
         with:
           name: apworld-fuzzer-output
@@ -1904,17 +1878,17 @@ jobs:
         if: ${{ always() && steps.fuzzer_support.outcome == 'success' }}
         env:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
-          DETERMINISM_RUNS: ${{ inputs.determinism_fuzzer_runs }}
-          NO_RESTRICTIVE_STARTS_RUNS: ${{ inputs.no_restrictive_starts_runs }}
-          CHECK_COLLECT_ACCESSIBILITY_RUNS: ${{ inputs.check_collect_accessibility_runs }}
-          CHECK_GERPOCALYPSE_RUNS: ${{ inputs.check_gerpocalypse_runs }}
-          CHECK_INDIRECT_CONDITIONS_RUNS: ${{ inputs.check_indirect_conditions_runs }}
-          CHECK_ITEM_LOCATION_COUNT_RUNS: ${{ inputs.check_item_location_count_runs }}
-          CHECK_LAMBDA_CAPTURE_RUNS: ${{ inputs.check_lambda_capture_runs }}
-          CHECK_PLACEMENT_ITEM_LOCATION_REFS_RUNS: ${{ inputs.check_placement_item_location_refs_runs }}
-          CHECK_STATIC_OUTPUT_PLACEMENT_RUNS: ${{ inputs.check_static_output_placement_runs }}
-          UT_RUNS: ${{ inputs.ut_fuzzer_runs }}
-          YAMLLESS_UT_RUNS: ${{ inputs.yamlless_ut_fuzzer_runs }}
+          DETERMINISM_RUNS: ${{ steps.fuzzer_preset.outputs.determinism }}
+          NO_RESTRICTIVE_STARTS_RUNS: ${{ steps.fuzzer_preset.outputs.no_restrictive_starts }}
+          CHECK_COLLECT_ACCESSIBILITY_RUNS: ${{ steps.fuzzer_preset.outputs.check_collect_accessibility }}
+          CHECK_GERPOCALYPSE_RUNS: ${{ steps.fuzzer_preset.outputs.check_gerpocalypse }}
+          CHECK_INDIRECT_CONDITIONS_RUNS: ${{ steps.fuzzer_preset.outputs.check_indirect_conditions }}
+          CHECK_ITEM_LOCATION_COUNT_RUNS: ${{ steps.fuzzer_preset.outputs.check_item_location_count }}
+          CHECK_LAMBDA_CAPTURE_RUNS: ${{ steps.fuzzer_preset.outputs.check_lambda_capture }}
+          CHECK_PLACEMENT_ITEM_LOCATION_REFS_RUNS: ${{ steps.fuzzer_preset.outputs.check_placement_item_location_refs }}
+          CHECK_STATIC_OUTPUT_PLACEMENT_RUNS: ${{ steps.fuzzer_preset.outputs.check_static_output_placement }}
+          UT_RUNS: ${{ steps.fuzzer_preset.outputs.ut }}
+          YAMLLESS_UT_RUNS: ${{ steps.fuzzer_preset.outputs.yamlless_ut }}
           USE_FUZZER_META: ${{ inputs.use_fuzzer_meta }}
         run: |
           rm -f "$BUILD_ROOT/fuzz.py"
