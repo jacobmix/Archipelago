@@ -1,0 +1,16 @@
+{
+  "source_repository": "",
+  "source_ref": "codex/minecraft-mod-semver-test",
+  "project_path": ".",
+  "java_version": "25",
+  "version": "",
+  "asset_name": "",
+  "artifact_path": "",
+  "protocol_file": "src/main/java/gg/archipelago/aprandomizer/APRandomizer.java",
+  "version_catalog": "versions/minecraft_versions.json",
+  "previous_asset": "",
+  "previous_version": "",
+  "previous_client_version": "",
+  "changelog_file": "",
+  "release_title": ""
+}

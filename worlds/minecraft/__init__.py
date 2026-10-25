@@ -68,7 +68,9 @@ class MinecraftSettings(settings.Group):
     server_directory: ServerDirectory = ServerDirectory("Minecraft AP Server Directory")
     max_heap_size: str = "2G"
     min_heap_size: str = "1G"
-    release_channel: ReleaseChannel = ReleaseChannel("release")
+    # This test branch reads the beta catalog so it can install the paired
+    # Minecraft 26.3 mod build before that build is part of a stable release.
+    release_channel: ReleaseChannel = ReleaseChannel("beta")
     java: JavaExecutable | None = JavaExecutable(None)
 
 

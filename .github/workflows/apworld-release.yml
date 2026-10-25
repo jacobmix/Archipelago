@@ -3,6 +3,33 @@ name: APWorld Release
 # Be free to use, copy, edit or share this workflow.
 # You can change defaults or add sections.
 # Each branch can have their own completely different workflow.
+# Companion mod setup:
+# 1. Set include_mod when dispatching this workflow.
+# 2. Edit .github/apworld-release-mod.json for the mod project on its own
+#    branch: repository (blank means this repo), source_ref, project_path,
+#    Java version, optional SemVer version override, asset_name, artifact_path,
+#    optional protocol_file, version_catalog, legacy previous_* values,
+#    changelog_file, and release_title.
+#    A blank version reads mod_version from gradle.properties. A blank asset
+#    name keeps the generated filename; a blank artifact_path requires exactly
+#    one non-source JAR under build/libs. A blank protocol_file skips the
+#    static APMC compatibility check.
+# 3. Use release_scope=both for the first paired release. Later one-sided
+#    releases reuse assets from the latest stable release only; prereleases
+#    are never used as a fallback.
+# 4. When the mod config names a protocol source file, the workflow checks
+#    that its supported APMC versions include the APWorld client_version.
+#    APWorld and mod SemVer major/minor values must match; patch/build metadata
+#    may differ (for example APWorld 2.2.1 with mod 2.2.2+26.3).
+# 5. The successful release includes release-metadata.json. That lets future
+#    releases preserve both exact asset names and versions. The mod catalog is
+#    updated after publishing when its source branch is in this repository.
+#    The catalog entry uses channel=beta for prereleases and channel=release
+#    for stable releases, and points to the new release asset.
+#
+# To customize another companion project, copy the JSON config and point its
+# settings at that project's Gradle wrapper, artifact, protocol check, and
+# version catalog. Set catalog to an empty string to skip catalog updates.
 # 
 # Recommend using a workflow like this to keep proper releases easy to make.
 # Good for indexers like:
@@ -17,8 +44,6 @@ name: APWorld Release
 # Get more out of propper versions like:
 # <https://github.com/jacobmix/Archipelago/blob/rac2/worlds/rac2/__init__.py#L23-L34>
 # <https://github.com/jacobmix/Archipelago/blob/rac2/worlds/rac2/Rac2Client.py#L396-L418>
-# Add & explain basic support to include mod files or such. (Won't be too specific. Just seperate changelog, pick release mod/ap, keep both in release regardless, title, ect)
-# Test & make more fuzzer presets (Consolidated fuzzers)
 # Include steps for how to setup self-hosted runner: https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/add-runners (Or at least warn/stop 1000 fuzzers from working without it/paying for more GitHub Actions)
 
 on:
@@ -61,7 +86,7 @@ on:
         description: |
           Apworld path, opt. followed by ':Name' (e.g., .:apquest or worlds/apquest) If no name is provided, the branch name is used. (blank = .:<branch> or worlds/<branch>:<branch>):
         required: false
-        default: ""
+        default: "worlds/minecraft:minecraft"
 
       flags:
         description: |
@@ -97,7 +122,23 @@ on:
         description: |
           Mark the GitHub release as a pre-release.
         type: boolean
-        default: false
+        default: true
+
+      include_mod:
+        description: |
+          Build or reuse the companion mod configured in .github/apworld-release-mod.json and include it beside the APWorld.
+        type: boolean
+        default: true
+
+      release_scope:
+        description: |
+          When a mod is included: build both, update only the APWorld, or update only the mod. One-sided releases reuse the matching asset from the latest stable release.
+        type: choice
+        default: both
+        options:
+          - both
+          - apworld_only
+          - mod_only
 
       include_player_yaml:
         description: |
@@ -204,10 +245,82 @@ jobs:
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
-          if [[ ! "$BRANCH" =~ ^[A-Za-z0-9_-]+$ ]]; then
+          if ! git check-ref-format --branch "$BRANCH" >/dev/null; then
             echo "::error::Invalid world branch name: $BRANCH"
-            echo "::error::World branch names must contain only letters, numbers, '_' and '-'."
+            echo "::error::World branch name must be a valid Git branch name."
             exit 1
+          fi
+
+      - name: Resolve companion mod settings
+        id: mod_settings
+        if: inputs.include_mod
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(".github/apworld-release-mod.json")
+          if not path.is_file():
+              raise SystemExit(
+                  "include_mod is enabled, but .github/apworld-release-mod.json is missing. "
+                  "Copy the example config and set its source_ref."
+              )
+
+          config = json.loads(path.read_text(encoding="utf-8"))
+          defaults = {
+              "source_repository": os.environ["REPOSITORY"],
+              "source_ref": "",
+              "project_path": ".",
+              "java_version": "25",
+              "version": "",
+              "asset_name": "",
+              "artifact_path": "",
+              "protocol_file": "",
+              "version_catalog": "",
+              "previous_asset": "",
+              "previous_version": "",
+              "previous_client_version": "",
+              "changelog_file": "",
+              "release_title": "",
+          }
+          defaults.update(config)
+          defaults["source_repository"] = defaults["source_repository"] or os.environ["REPOSITORY"]
+
+          if defaults["java_version"] not in {"21", "25"}:
+              raise SystemExit("mod config java_version must be 21 or 25.")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+              for key, value in defaults.items():
+                  value = str(value).strip()
+                  if "\n" in value or "\r" in value:
+                      raise SystemExit(f"Mod config value {key} must be a single line.")
+                  output_file.write(f"{key}={value}\n")
+          PY
+
+      - name: Validate companion mod settings
+        if: inputs.include_mod
+        env:
+          RELEASE_SCOPE: ${{ inputs.release_scope }}
+          MOD_SOURCE_REF: ${{ steps.mod_settings.outputs.source_ref }}
+        run: |
+          if [ "$RELEASE_SCOPE" != "both" ] && [ "$RELEASE_SCOPE" != "apworld_only" ] && [ "$RELEASE_SCOPE" != "mod_only" ]; then
+            echo "::error::Unknown release scope: $RELEASE_SCOPE"
+            exit 1
+          fi
+
+          if [ "$RELEASE_SCOPE" != "apworld_only" ] && [ -z "$MOD_SOURCE_REF" ]; then
+            echo "::error::Set mod_source_ref when building the companion mod."
+            exit 1
+          fi
+
+          if [ "$RELEASE_SCOPE" != "apworld_only" ]; then
+            if ! git check-ref-format --branch "$MOD_SOURCE_REF" >/dev/null && ! git check-ref-format "$MOD_SOURCE_REF" >/dev/null; then
+              echo "::error::mod_source_ref must be a valid branch, tag, or Git ref."
+              exit 1
+            fi
           fi
 
       ######################################################################
@@ -944,8 +1057,9 @@ jobs:
         env:
           WORLD: ${{ steps.world.outputs.world }}
           SOURCE_DIR: ${{ steps.world.outputs.source_dir }}
-          BUMP: ${{ inputs.bump }}
+          BUMP: ${{ inputs.include_mod && inputs.release_scope == 'mod_only' && 'none' || inputs.bump }}
           OVERRIDE_VERSION: ${{ inputs.world_version }}
+          IGNORE_WORLD_OVERRIDE: ${{ inputs.include_mod && inputs.release_scope == 'mod_only' }}
           GAME_OVERRIDE: ${{ inputs.game }}
           AUTHORS: ${{ inputs.authors }}
           MINIMUM: ${{ inputs.minimum_ap_version }}
@@ -1023,6 +1137,9 @@ jobs:
           # --------------------------------------------------------------
 
           override_version = os.environ["OVERRIDE_VERSION"]
+
+          if os.environ["IGNORE_WORLD_OVERRIDE"] == "true":
+              override_version = ""
 
           if override_version:
               manifest["world_version"] = override_version
@@ -2093,6 +2210,418 @@ jobs:
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve previous stable release assets
+        id: previous_assets
+        if: inputs.include_mod
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ steps.previous_release.outputs.tag }}
+          RELEASE_SCOPE: ${{ inputs.release_scope }}
+          WORLD: ${{ steps.world.outputs.world }}
+          PREVIOUS_MOD_ASSET: ${{ steps.mod_settings.outputs.previous_asset }}
+          PREVIOUS_MOD_VERSION: ${{ steps.mod_settings.outputs.previous_version }}
+          PREVIOUS_MOD_CLIENT_VERSION: ${{ steps.mod_settings.outputs.previous_client_version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/previous-release-assets"
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            if [ "$RELEASE_SCOPE" != "both" ]; then
+              echo "::error::One-sided releases require a previous stable release. Prereleases are intentionally not reused."
+              exit 1
+            fi
+            echo "No stable release exists yet; both components must be built."
+            exit 0
+          fi
+
+          gh release view "$PREVIOUS_TAG" --json assets > "$RUNNER_TEMP/release-assets.json"
+          mapfile -t ASSETS < <(jq -r '.assets[].name' "$RUNNER_TEMP/release-assets.json")
+
+          if printf '%s\n' "${ASSETS[@]}" | grep -Fxq "release-metadata.json"; then
+            gh release download "$PREVIOUS_TAG" \
+              --pattern "release-metadata.json" \
+              --dir "$RUNNER_TEMP/previous-release-assets"
+          fi
+
+          PREVIOUS_APWORLD=""
+          PREVIOUS_MOD=""
+          PREVIOUS_MOD_VERSION_INPUT="$PREVIOUS_MOD_VERSION"
+          PREVIOUS_MOD_CLIENT_VERSION_INPUT="$PREVIOUS_MOD_CLIENT_VERSION"
+          PREVIOUS_MOD_VERSION=""
+          PREVIOUS_MOD_COMMIT=""
+          PREVIOUS_MOD_REPOSITORY=""
+          PREVIOUS_MOD_REF=""
+          PREVIOUS_MINECRAFT_VERSION=""
+          PREVIOUS_JAVA_VERSION=""
+          PREVIOUS_APWORLD_VERSION=""
+          PREVIOUS_CLIENT_VERSION=""
+
+          if [ -f "$RUNNER_TEMP/previous-release-assets/release-metadata.json" ]; then
+            METADATA="$RUNNER_TEMP/previous-release-assets/release-metadata.json"
+            PREVIOUS_APWORLD=$(jq -r '.apworld_asset // empty' "$METADATA")
+            PREVIOUS_MOD=$(jq -r '.mod_asset // empty' "$METADATA")
+            PREVIOUS_MOD_VERSION=$(jq -r '.mod_version // empty' "$METADATA")
+            PREVIOUS_MOD_COMMIT=$(jq -r '.mod_source_commit // empty' "$METADATA")
+            PREVIOUS_MOD_REPOSITORY=$(jq -r '.mod_source_repository // empty' "$METADATA")
+            PREVIOUS_MOD_REF=$(jq -r '.mod_source_ref // empty' "$METADATA")
+            PREVIOUS_MINECRAFT_VERSION=$(jq -r '.minecraft_version // empty' "$METADATA")
+            PREVIOUS_JAVA_VERSION=$(jq -r '.java_version // empty' "$METADATA")
+            PREVIOUS_APWORLD_VERSION=$(jq -r '.apworld_version // empty' "$METADATA")
+            PREVIOUS_CLIENT_VERSION=$(jq -r '.client_version // empty' "$METADATA")
+          fi
+
+          PREVIOUS_CLIENT_VERSION="${PREVIOUS_CLIENT_VERSION:-$PREVIOUS_MOD_CLIENT_VERSION_INPUT}"
+
+          PREVIOUS_APWORLD="${PREVIOUS_APWORLD:-${WORLD}.apworld}"
+          if [ -n "$PREVIOUS_MOD_ASSET" ]; then
+            PREVIOUS_MOD="$PREVIOUS_MOD_ASSET"
+          fi
+
+          if [ "$RELEASE_SCOPE" = "apworld_only" ] && [ -z "$PREVIOUS_MOD" ]; then
+            mapfile -t JARS < <(printf '%s\n' "${ASSETS[@]}" | grep -E '\.jar$' || true)
+            if [ "${#JARS[@]}" -eq 1 ]; then
+              PREVIOUS_MOD="${JARS[0]}"
+            fi
+          fi
+
+          if [ "$RELEASE_SCOPE" = "mod_only" ]; then
+            if ! printf '%s\n' "${ASSETS[@]}" | grep -Fxq "$PREVIOUS_APWORLD"; then
+              echo "::error::The previous stable release does not contain $PREVIOUS_APWORLD."
+              exit 1
+            fi
+            gh release download "$PREVIOUS_TAG" \
+              --pattern "$PREVIOUS_APWORLD" \
+              --dir "$RUNNER_TEMP/previous-release-assets"
+
+            python - "$RUNNER_TEMP/previous-release-assets/$PREVIOUS_APWORLD" > "$RUNNER_TEMP/previous-apworld-metadata.json" <<'PY'
+          import json
+          import re
+          import sys
+          import zipfile
+
+          path = sys.argv[1]
+          world_version = ""
+          client_version = ""
+          with zipfile.ZipFile(path) as archive:
+              for name in archive.namelist():
+                  if name.endswith("archipelago.json"):
+                      try:
+                          manifest = json.loads(archive.read(name))
+                          world_version = str(manifest.get("world_version", ""))
+                      except Exception:
+                          pass
+                  if name.endswith("/__init__.py") or name == "__init__.py":
+                      source = archive.read(name).decode("utf-8", errors="replace")
+                      match = re.search(r"(?m)^\s*client_version\s*=\s*(\d+)\b", source)
+                      if match:
+                          client_version = match.group(1)
+                          break
+          print(json.dumps({"world_version": world_version, "client_version": client_version}))
+          PY
+            PREVIOUS_APWORLD_VERSION=$(jq -r '.world_version // empty' "$RUNNER_TEMP/previous-apworld-metadata.json")
+            PREVIOUS_CLIENT_VERSION=$(jq -r '.client_version // empty' "$RUNNER_TEMP/previous-apworld-metadata.json")
+            if [ -z "$PREVIOUS_APWORLD_VERSION" ] || [ -z "$PREVIOUS_CLIENT_VERSION" ]; then
+              echo "::error::Could not read world_version and client_version from the previous APWorld package."
+              exit 1
+            fi
+          fi
+
+          if [ "$RELEASE_SCOPE" = "apworld_only" ]; then
+            if [ -z "$PREVIOUS_MOD" ]; then
+              echo "::error::Could not identify the previous mod asset. Add release-metadata.json to a prior release or set previous_mod_asset."
+              exit 1
+            fi
+            if ! printf '%s\n' "${ASSETS[@]}" | grep -Fxq "$PREVIOUS_MOD"; then
+              echo "::error::The previous stable release does not contain mod asset $PREVIOUS_MOD."
+              exit 1
+            fi
+            gh release download "$PREVIOUS_TAG" \
+              --pattern "$PREVIOUS_MOD" \
+              --dir "$RUNNER_TEMP/previous-release-assets"
+            if [ -z "$PREVIOUS_MOD_VERSION" ]; then
+              PREVIOUS_MOD_VERSION="$PREVIOUS_MOD_VERSION_INPUT"
+            fi
+            if [ -z "$PREVIOUS_MOD_VERSION" ] && [[ "$PREVIOUS_MOD" =~ ^aprandomizer-(.+)\.jar$ ]]; then
+              PREVIOUS_MOD_VERSION="${BASH_REMATCH[1]}"
+            fi
+          fi
+
+          {
+            echo "apworld_asset=$PREVIOUS_APWORLD"
+            echo "apworld_version=$PREVIOUS_APWORLD_VERSION"
+            echo "client_version=$PREVIOUS_CLIENT_VERSION"
+            echo "mod_asset=$PREVIOUS_MOD"
+            echo "mod_version=$PREVIOUS_MOD_VERSION"
+            echo "mod_commit=$PREVIOUS_MOD_COMMIT"
+            echo "mod_repository=$PREVIOUS_MOD_REPOSITORY"
+            echo "mod_ref=$PREVIOUS_MOD_REF"
+            echo "minecraft_version=$PREVIOUS_MINECRAFT_VERSION"
+            echo "java_version=$PREVIOUS_JAVA_VERSION"
+            echo "apworld_path=$RUNNER_TEMP/previous-release-assets/$PREVIOUS_APWORLD"
+            echo "mod_path=$RUNNER_TEMP/previous-release-assets/$PREVIOUS_MOD"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Previous stable APWorld asset: $PREVIOUS_APWORLD"
+          echo "Previous stable mod asset: ${PREVIOUS_MOD:-not selected}"
+
+      ######################################################################
+      # Optional companion mod build
+      #
+      # Example: put a mod project on a companion branch, select that branch
+      # as mod_source_ref, and point mod_project_path at its Gradle project.
+      # The project should expose a Gradle wrapper and build/libs/*.jar.
+      ######################################################################
+
+      - name: Checkout companion mod source
+        if: inputs.include_mod && inputs.release_scope != 'apworld_only'
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.mod_settings.outputs.source_repository }}
+          ref: ${{ steps.mod_settings.outputs.source_ref }}
+          path: .mod-source
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up mod Java
+        if: inputs.include_mod && inputs.release_scope != 'apworld_only'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ steps.mod_settings.outputs.java_version }}
+
+      - name: Build companion mod
+        id: mod_build
+        if: inputs.include_mod && inputs.release_scope != 'apworld_only'
+        env:
+          MOD_PROJECT_PATH: ${{ steps.mod_settings.outputs.project_path }}
+          MOD_VERSION_OVERRIDE: ${{ steps.mod_settings.outputs.version }}
+          MOD_ASSET_NAME: ${{ steps.mod_settings.outputs.asset_name }}
+          MOD_ARTIFACT_PATH: ${{ steps.mod_settings.outputs.artifact_path }}
+          MOD_PROTOCOL_FILE: ${{ steps.mod_settings.outputs.protocol_file }}
+          WORLD_SOURCE_DIR: ${{ steps.world.outputs.source_dir }}
+          WORLD_VERSION: ${{ inputs.include_mod && inputs.release_scope == 'mod_only' && steps.previous_assets.outputs.apworld_version || steps.manifest.outputs.world_version }}
+          MOD_JAVA_VERSION: ${{ steps.mod_settings.outputs.java_version }}
+          RELEASE_SCOPE: ${{ inputs.release_scope }}
+          PREVIOUS_CLIENT_VERSION: ${{ steps.previous_assets.outputs.client_version }}
+        run: |
+          python <<'PY'
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          source_root = (workspace / ".mod-source").resolve()
+          project = (source_root / os.environ["MOD_PROJECT_PATH"]).resolve()
+
+          if source_root not in project.parents and project != source_root:
+              raise SystemExit("mod_project_path must stay inside the checked-out mod source.")
+          if not project.is_dir():
+              raise SystemExit(f"Mod project directory does not exist: {project}")
+
+          properties_path = project / "gradle.properties"
+          if not properties_path.is_file():
+              raise SystemExit(f"Expected Gradle project properties: {properties_path}")
+
+          properties = properties_path.read_text(encoding="utf-8")
+          match = re.search(r"(?m)^\s*mod_version\s*=\s*(\S+)\s*$", properties)
+          if not match:
+              raise SystemExit("gradle.properties must define mod_version=... .")
+
+          mod_version = os.environ["MOD_VERSION_OVERRIDE"].strip() or match.group(1)
+          semver = re.compile(
+              r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+              r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+              r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+          )
+          version_match = semver.fullmatch(mod_version)
+          if not version_match:
+              raise SystemExit(
+                  f"Mod version {mod_version!r} is not a valid SemVer version."
+              )
+          prerelease = version_match.group(4)
+          if prerelease and any(
+              part.isdigit() and len(part) > 1 and part.startswith("0")
+              for part in prerelease.split(".")
+          ):
+              raise SystemExit("Numeric SemVer prerelease identifiers cannot have leading zeroes.")
+
+          world_match = re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", os.environ["WORLD_VERSION"])
+          if not world_match:
+              raise SystemExit("The APWorld manifest world_version must be major.minor.patch.")
+          if version_match.group(1, 2) != world_match.group(1, 2):
+              raise SystemExit(
+                  "APWorld and mod major/minor versions must match for the shared "
+                  f"compatibility line (APWorld {os.environ['WORLD_VERSION']}, mod {mod_version})."
+              )
+
+          if os.environ["MOD_VERSION_OVERRIDE"].strip():
+              properties = re.sub(
+                  r"(?m)^\s*mod_version\s*=\s*\S+\s*$",
+                  f"mod_version={mod_version}",
+                  properties,
+                  count=1,
+              )
+              properties_path.write_text(properties, encoding="utf-8")
+
+          if os.environ["MOD_PROTOCOL_FILE"].strip():
+              protocol_path = (project / os.environ["MOD_PROTOCOL_FILE"]).resolve()
+              if project not in protocol_path.parents:
+                  raise SystemExit("mod_protocol_file must stay inside the mod project.")
+              protocol_text = protocol_path.read_text(encoding="utf-8")
+              versions_match = re.search(
+                  r"VALID_VERSIONS\s*=\s*IntSet\.of\s*\((.*?)\)",
+                  protocol_text,
+                  re.DOTALL,
+              )
+              ap_source = (workspace / os.environ["WORLD_SOURCE_DIR"] / "__init__.py").resolve()
+              ap_text = ap_source.read_text(encoding="utf-8")
+              client_match = re.search(r"(?m)^\s*client_version\s*=\s*(\d+)\b", ap_text)
+              if not versions_match:
+                  raise SystemExit("Could not compare the APWorld client_version with the mod VALID_VERSIONS.")
+              supported = {int(value) for value in re.findall(r"\b\d+\b", versions_match.group(1))}
+              if os.environ["RELEASE_SCOPE"] == "mod_only":
+                  expected_client_version = os.environ["PREVIOUS_CLIENT_VERSION"].strip()
+              else:
+                  expected_client_version = client_match.group(1) if client_match else ""
+              if not expected_client_version:
+                  raise SystemExit("Could not resolve the APMC protocol version to validate for the mod.")
+              client_version = int(expected_client_version)
+              if client_version not in supported:
+                  raise SystemExit(
+                      f"APWorld client_version {client_version} is not supported by the mod "
+                      f"(VALID_VERSIONS: {sorted(supported)})."
+                  )
+          else:
+              client_version = ""
+
+          build = subprocess.run(
+              ["bash", "./gradlew", "build", "--no-daemon"],
+              cwd=project,
+              check=False,
+          )
+          if build.returncode:
+              raise SystemExit(build.returncode)
+
+          artifact_setting = os.environ["MOD_ARTIFACT_PATH"].strip()
+          if artifact_setting:
+              artifact = (project / artifact_setting).resolve()
+              if project not in artifact.parents:
+                  raise SystemExit("mod_artifact_path must stay inside the mod project.")
+          else:
+              candidates = [
+                  path for path in (project / "build" / "libs").glob("*.jar")
+                  if not path.name.endswith(("-sources.jar", "-javadoc.jar"))
+              ]
+              if len(candidates) != 1:
+                  raise SystemExit(
+                      "Expected exactly one main JAR under build/libs; set mod_artifact_path "
+                      f"to select one (found {len(candidates)})."
+                  )
+              artifact = candidates[0]
+
+          if not artifact.is_file():
+              raise SystemExit(f"Mod build artifact is missing: {artifact}")
+
+          asset_name = os.environ["MOD_ASSET_NAME"].strip() or artifact.name
+          if Path(asset_name).name != asset_name or "\n" in asset_name or "\r" in asset_name:
+              raise SystemExit("mod_asset_name must be a plain filename without directories.")
+
+          outputs = {
+              "version": mod_version,
+              "artifact": str(artifact),
+              "asset_name": asset_name,
+              "project": str(project),
+              "source_commit": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], cwd=source_root, text=True
+              ).strip(),
+              "minecraft": re.search(r"(?m)^\s*minecraft_version\s*=\s*(\S+)", properties).group(1),
+              "java": os.environ["MOD_JAVA_VERSION"],
+              "client_version": str(client_version),
+          }
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output_file:
+              for key, value in outputs.items():
+                  output_file.write(f"{key}={value}\n")
+
+          print("Mod build settings:")
+          for key, value in outputs.items():
+              print(f"  {key}: {value}")
+          PY
+
+      - name: Resolve release identity
+        id: release_identity
+        env:
+          WORLD: ${{ steps.world.outputs.world }}
+          GAME: ${{ steps.manifest.outputs.game }}
+          WORLD_VERSION: ${{ inputs.include_mod && inputs.release_scope == 'mod_only' && steps.previous_assets.outputs.apworld_version || steps.manifest.outputs.world_version }}
+          WORLD_SOURCE_DIR: ${{ steps.world.outputs.source_dir }}
+          INCLUDE_MOD: ${{ inputs.include_mod }}
+          RELEASE_SCOPE: ${{ inputs.release_scope }}
+          MOD_VERSION: ${{ steps.mod_build.outputs.version || steps.previous_assets.outputs.mod_version }}
+          MOD_CLIENT_VERSION: ${{ steps.mod_build.outputs.client_version }}
+          PREVIOUS_CLIENT_VERSION: ${{ steps.previous_assets.outputs.client_version }}
+          RELEASE_TITLE_OVERRIDE: ${{ steps.mod_settings.outputs.release_title }}
+        run: |
+          if [ "$INCLUDE_MOD" = "true" ] && [ "$RELEASE_SCOPE" = "mod_only" ]; then
+            AP_CLIENT_VERSION="$PREVIOUS_CLIENT_VERSION"
+          else
+            AP_CLIENT_VERSION=$(python - "$WORLD_SOURCE_DIR/__init__.py" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+          match = re.search(r"(?m)^\s*client_version\s*=\s*(\d+)\b", Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if not match:
+              raise SystemExit("Could not read client_version from the APWorld source.")
+          print(match.group(1))
+          PY
+            )
+          fi
+
+          if [ "$INCLUDE_MOD" = "true" ]; then
+            if [ -z "$MOD_VERSION" ]; then
+              echo "::error::A mod version is missing; select a mode that builds the mod or add metadata to the previous release."
+              exit 1
+            fi
+            WORLD_LINE="${WORLD_VERSION%.*}"
+            MOD_CORE="${MOD_VERSION%%+*}"
+            MOD_CORE="${MOD_CORE%%-*}"
+            MOD_LINE="${MOD_CORE%.*}"
+            if [ "$WORLD_LINE" != "$MOD_LINE" ]; then
+              echo "::error::APWorld and mod major/minor versions must match (APWorld $WORLD_VERSION, mod $MOD_VERSION)."
+              exit 1
+            fi
+
+            if [ "$RELEASE_SCOPE" = "mod_only" ]; then
+              if [ -z "$PREVIOUS_CLIENT_VERSION" ] || [ "$MOD_CLIENT_VERSION" != "$PREVIOUS_CLIENT_VERSION" ]; then
+                echo "::error::The mod protocol version must match the reused stable APWorld (mod $MOD_CLIENT_VERSION, APWorld $PREVIOUS_CLIENT_VERSION)."
+                exit 1
+              fi
+            elif [ "$RELEASE_SCOPE" = "apworld_only" ]; then
+              if [ -z "$PREVIOUS_CLIENT_VERSION" ] || [ "$AP_CLIENT_VERSION" != "$PREVIOUS_CLIENT_VERSION" ]; then
+                echo "::error::The APWorld client_version must match the reused stable mod. Set previous_mod_client_version if the prior release lacks metadata."
+                exit 1
+              fi
+            elif [ -n "$MOD_CLIENT_VERSION" ] && [ "$MOD_CLIENT_VERSION" != "$AP_CLIENT_VERSION" ]; then
+              echo "::error::APWorld client_version and mod protocol version differ ($AP_CLIENT_VERSION vs $MOD_CLIENT_VERSION)."
+              exit 1
+            elif [ -z "$MOD_CLIENT_VERSION" ]; then
+              echo "::warning::The mod protocol compatibility check is disabled; future one-sided releases will need previous_client_version in the mod config."
+            fi
+            TAG="${WORLD}-v${WORLD_VERSION}-mod-v${MOD_VERSION}"
+            DEFAULT_TITLE="${GAME} APWorld v${WORLD_VERSION} + mod v${MOD_VERSION}"
+          else
+            TAG="${WORLD}-v${WORLD_VERSION}"
+            DEFAULT_TITLE="${GAME} APWorld release v${WORLD_VERSION}"
+          fi
+
+          TITLE="${RELEASE_TITLE_OVERRIDE:-$DEFAULT_TITLE}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+          echo "world_version=$WORLD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "mod_version=$MOD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "client_version=$AP_CLIENT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release tag: $TAG"
+          echo "Release title: $TITLE"
+
       ######################################################################
       # Generate release notes
       ######################################################################
@@ -2101,13 +2630,23 @@ jobs:
         env:
           WORLD: ${{ steps.world.outputs.world }}
           GAME: ${{ steps.manifest.outputs.game }}
-          VERSION: ${{ steps.manifest.outputs.world_version }}
+          VERSION: ${{ steps.release_identity.outputs.world_version }}
           INCLUDE_CHANGELOG: ${{ inputs.include_changelog }}
           NOTES_FILE: ${{ inputs.release_notes_file }}
           PREVIOUS_TAG: ${{ steps.previous_release.outputs.tag }}
+          RELEASE_TAG: ${{ steps.release_identity.outputs.tag }}
           REPOSITORY: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
           SOURCE_DIR: ${{ steps.world.outputs.source_dir }}
+          INCLUDE_MOD: ${{ inputs.include_mod }}
+          RELEASE_SCOPE: ${{ inputs.release_scope }}
+          MOD_VERSION: ${{ steps.mod_build.outputs.version || steps.previous_assets.outputs.mod_version }}
+          MOD_ASSET_NAME: ${{ steps.mod_build.outputs.asset_name || steps.previous_assets.outputs.mod_asset }}
+          RELEASE_TITLE: ${{ steps.release_identity.outputs.title }}
+          MOD_PROJECT: ${{ steps.mod_build.outputs.project }}
+          MOD_SOURCE_COMMIT: ${{ steps.mod_build.outputs.source_commit }}
+          PREVIOUS_MOD_COMMIT: ${{ steps.previous_assets.outputs.mod_commit }}
+          MOD_CHANGELOG_FILE: ${{ steps.mod_settings.outputs.changelog_file }}
         run: |
           python <<'PY'
           import os
@@ -2121,6 +2660,7 @@ jobs:
           repository = os.environ["REPOSITORY"]
           branch = os.environ["BRANCH"]
           source_dir = os.environ["SOURCE_DIR"]
+          release_tag = os.environ["RELEASE_TAG"]
 
           print(f"APWorld:       {world}")
           print(f"Source dir:    {source_dir}")
@@ -2160,7 +2700,7 @@ jobs:
               compare_url = (
                   f"https://github.com/{repository}/compare/"
                   f"{quote(previous, safe='')}..."
-                  f"{quote(world + '-v' + version, safe='')}"
+                  f"{quote(release_tag, safe='')}"
               )
 
           # --------------------------------------------------------------
@@ -2187,6 +2727,10 @@ jobs:
               "{SOURCE_DIR}": source_dir,
               "{DOCS_URL}": docs_url,
               "{COMPARE_URL}": compare_url,
+              "{MOD_VERSION}": os.environ.get("MOD_VERSION", ""),
+              "{MOD_ASSET}": os.environ.get("MOD_ASSET_NAME", ""),
+              "{RELEASE_TAG}": release_tag,
+              "{RELEASE_TITLE}": os.environ.get("RELEASE_TITLE", ""),
           }
 
           if template:
@@ -2215,7 +2759,10 @@ jobs:
           # Changelog
           # --------------------------------------------------------------
 
-          if os.environ["INCLUDE_CHANGELOG"] == "true":
+          if (
+              os.environ["INCLUDE_CHANGELOG"] == "true"
+              and os.environ["RELEASE_SCOPE"] != "mod_only"
+          ):
               notes += "\n\n## Changelog\n\n"
 
               command = [
@@ -2279,6 +2826,50 @@ jobs:
                       f"{compare_url}"
                   )
 
+          if os.environ["INCLUDE_MOD"] == "true":
+              notes += "\n\n## Companion mod\n\n"
+              notes += f"- Version: `{os.environ['MOD_VERSION']}`\n"
+              notes += f"- Asset: `{os.environ['MOD_ASSET_NAME']}`\n"
+
+              if os.environ["RELEASE_SCOPE"] == "apworld_only":
+                  notes += "- This release reuses the mod artifact from the latest stable release.\n"
+              else:
+                  notes += "- The mod was built from the selected source branch for this release.\n"
+                  mod_changelog_file = os.environ["MOD_CHANGELOG_FILE"]
+                  mod_project = Path(os.environ["MOD_PROJECT"])
+                  changelog_path = mod_project / mod_changelog_file if mod_changelog_file else None
+
+                  if changelog_path and changelog_path.is_file():
+                      mod_changelog = changelog_path.read_text(encoding="utf-8").strip()
+                  else:
+                      previous_mod_commit = os.environ["PREVIOUS_MOD_COMMIT"]
+                      command = [
+                          "git", "-C", str(mod_project), "log", "-10",
+                          "--no-merges", "--pretty=- %s (%h)",
+                      ]
+                      if previous_mod_commit:
+                          ancestor = subprocess.run(
+                              ["git", "-C", str(mod_project), "merge-base", "--is-ancestor",
+                               previous_mod_commit, "HEAD"],
+                              check=False,
+                          )
+                          if ancestor.returncode == 0:
+                              command.insert(4, f"{previous_mod_commit}..HEAD")
+                      result = subprocess.run(
+                          command, capture_output=True, text=True, check=False
+                      )
+                      mod_changelog = result.stdout.strip() if result.returncode == 0 else ""
+
+                  notes += "\n### Mod changes\n\n"
+                  notes += mod_changelog or "- No mod source changes were found."
+
+                  if os.environ["MOD_SOURCE_COMMIT"]:
+                      notes += (
+                          "\n\nSource commit: `"
+                          + os.environ["MOD_SOURCE_COMMIT"][:12]
+                          + "`"
+                      )
+
           Path("release_notes.md").write_text(
               notes,
               encoding="utf-8",
@@ -2294,14 +2885,34 @@ jobs:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           INCLUDE_PLAYER_YAML: ${{ inputs.include_player_yaml }}
           WORLD: ${{ steps.world.outputs.world }}
+          INCLUDE_MOD: ${{ inputs.include_mod }}
+          RELEASE_SCOPE: ${{ inputs.release_scope }}
+          PREVIOUS_APWORLD_PATH: ${{ steps.previous_assets.outputs.apworld_path }}
+          PREVIOUS_MOD_PATH: ${{ steps.previous_assets.outputs.mod_path }}
+          PREVIOUS_MOD_ASSET: ${{ steps.previous_assets.outputs.mod_asset }}
+          BUILT_MOD_PATH: ${{ steps.mod_build.outputs.artifact }}
+          BUILT_MOD_ASSET: ${{ steps.mod_build.outputs.asset_name }}
+          APWORLD_VERSION: ${{ steps.release_identity.outputs.world_version }}
+          MOD_VERSION: ${{ steps.mod_build.outputs.version || steps.previous_assets.outputs.mod_version }}
+          CLIENT_VERSION: ${{ steps.release_identity.outputs.client_version }}
+          MOD_SOURCE_COMMIT: ${{ steps.mod_build.outputs.source_commit || steps.previous_assets.outputs.mod_commit }}
+          MOD_SOURCE_REPOSITORY: ${{ steps.mod_build.outputs.source_repository || steps.previous_assets.outputs.mod_repository || steps.mod_settings.outputs.source_repository }}
+          MOD_SOURCE_REF: ${{ steps.mod_build.outputs.source_ref || steps.previous_assets.outputs.mod_ref || steps.mod_settings.outputs.source_ref }}
+          MOD_MINECRAFT_VERSION: ${{ steps.mod_build.outputs.minecraft || steps.previous_assets.outputs.minecraft_version }}
+          MOD_JAVA_VERSION: ${{ steps.mod_build.outputs.java || steps.previous_assets.outputs.java_version }}
         run: |
           mkdir -p release_files
 
-          cp \
-            "$BUILD_ROOT/build/apworlds/${WORLD}.apworld" \
-            "release_files/${WORLD}.apworld"
+          if [ "$INCLUDE_MOD" = "true" ] && [ "$RELEASE_SCOPE" = "mod_only" ]; then
+            cp "$PREVIOUS_APWORLD_PATH" "release_files/${WORLD}.apworld"
+          else
+            cp \
+              "$BUILD_ROOT/build/apworlds/${WORLD}.apworld" \
+              "release_files/${WORLD}.apworld"
+          fi
 
-          if [ "$INCLUDE_PLAYER_YAML" = "true" ]; then
+          if [ "$INCLUDE_PLAYER_YAML" = "true" ] && \
+             ! { [ "$INCLUDE_MOD" = "true" ] && [ "$RELEASE_SCOPE" = "mod_only" ]; }; then
             if [ ! -f "${WORLD}.yaml" ]; then
               echo "::error::Expected generated player YAML: ${WORLD}.yaml"
               exit 1
@@ -2312,6 +2923,40 @@ jobs:
               "release_files/${WORLD}.yaml"
           fi
 
+          if [ "$INCLUDE_MOD" = "true" ]; then
+            if [ "$RELEASE_SCOPE" = "apworld_only" ]; then
+              MOD_ASSET="$PREVIOUS_MOD_ASSET"
+              cp "$PREVIOUS_MOD_PATH" "release_files/$MOD_ASSET"
+            else
+              MOD_ASSET="$BUILT_MOD_ASSET"
+              cp "$BUILT_MOD_PATH" "release_files/$MOD_ASSET"
+            fi
+            export MOD_ASSET
+
+            python <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          metadata = {
+              "schema_version": 1,
+              "apworld_asset": f"{os.environ['WORLD']}.apworld",
+              "apworld_version": os.environ["APWORLD_VERSION"],
+              "mod_asset": os.environ["MOD_ASSET"],
+              "mod_version": os.environ["MOD_VERSION"],
+              "client_version": int(os.environ["CLIENT_VERSION"]),
+              "mod_source_repository": os.environ["MOD_SOURCE_REPOSITORY"],
+              "mod_source_ref": os.environ["MOD_SOURCE_REF"],
+              "mod_source_commit": os.environ["MOD_SOURCE_COMMIT"],
+              "minecraft_version": os.environ["MOD_MINECRAFT_VERSION"],
+              "java_version": os.environ["MOD_JAVA_VERSION"],
+          }
+          Path("release_files/release-metadata.json").write_text(
+              json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+          )
+          PY
+          fi
+
           echo "Release files:"
           ls -lh release_files
 
@@ -2320,19 +2965,41 @@ jobs:
           BUILD_ROOT: ${{ steps.build_root.outputs.build_root }}
           WORLD: ${{ steps.world.outputs.world }}
           INCLUDE_PLAYER_YAML: ${{ inputs.include_player_yaml }}
+          INCLUDE_MOD: ${{ inputs.include_mod }}
+          RELEASE_SCOPE: ${{ inputs.release_scope }}
         run: |
-          APWORLD="$BUILD_ROOT/build/apworlds/${WORLD}.apworld"
-      
-          if [ ! -f "$APWORLD" ]; then
-            echo "::error::Missing APWorld: $APWORLD"
-            exit 1
+          if [ "$INCLUDE_MOD" = "true" ] && [ "$RELEASE_SCOPE" = "mod_only" ]; then
+            if [ ! -f "release_files/${WORLD}.apworld" ]; then
+              echo "::error::Missing reused APWorld: release_files/${WORLD}.apworld"
+              exit 1
+            fi
+          else
+            APWORLD="$BUILD_ROOT/build/apworlds/${WORLD}.apworld"
+            if [ ! -f "$APWORLD" ]; then
+              echo "::error::Missing APWorld: $APWORLD"
+              exit 1
+            fi
           fi
-      
-          if [ "$INCLUDE_PLAYER_YAML" = "true" ] && [ ! -f "${WORLD}.yaml" ]; then
+
+          if [ "$INCLUDE_PLAYER_YAML" = "true" ] && \
+             ! { [ "$INCLUDE_MOD" = "true" ] && [ "$RELEASE_SCOPE" = "mod_only" ]; } && \
+             [ ! -f "${WORLD}.yaml" ]; then
             echo "::error::Missing player YAML: ${WORLD}.yaml"
             exit 1
           fi
-      
+
+          if [ "$INCLUDE_MOD" = "true" ]; then
+            if [ ! -f release_files/release-metadata.json ]; then
+              echo "::error::Missing release metadata for paired assets."
+              exit 1
+            fi
+            MOD_ASSET=$(jq -r '.mod_asset' release_files/release-metadata.json)
+            if [ ! -f "release_files/$MOD_ASSET" ]; then
+              echo "::error::Missing companion mod asset: release_files/$MOD_ASSET"
+              exit 1
+            fi
+          fi
+
           if [ ! -f release_notes.md ]; then
             echo "::error::Missing release notes: release_notes.md"
             exit 1
@@ -2343,11 +3010,8 @@ jobs:
       - name: Check release tag
         env:
           GH_TOKEN: ${{ github.token }}
-          WORLD: ${{ steps.world.outputs.world }}
-          VERSION: ${{ steps.manifest.outputs.world_version }}
+          TAG: ${{ steps.release_identity.outputs.tag }}
         run: |
-          TAG="${WORLD}-v${VERSION}"
-      
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
             echo "::error::Release tag already exists: $TAG"
             echo "::error::A previous release attempt may have left the tag behind."
@@ -2364,7 +3028,7 @@ jobs:
         env:
           MANIFEST_PATH: ${{ steps.manifest.outputs.manifest_path }}
           WORLD: ${{ steps.world.outputs.world }}
-          VERSION: ${{ steps.manifest.outputs.world_version }}
+          VERSION: ${{ steps.release_identity.outputs.world_version }}
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
@@ -2396,11 +3060,8 @@ jobs:
       - name: Create release tag
         id: tag
         env:
-          WORLD: ${{ steps.world.outputs.world }}
-          VERSION: ${{ steps.manifest.outputs.world_version }}
+          TAG: ${{ steps.release_identity.outputs.tag }}
         run: |
-          TAG="${WORLD}-v${VERSION}"
-
           echo "Creating tag: $TAG"
 
           git tag "$TAG"
@@ -2416,11 +3077,136 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
-          name: "${{ steps.manifest.outputs.game }} APWorld release v${{ steps.manifest.outputs.world_version }}"
+          name: ${{ steps.release_identity.outputs.title }}
           body_path: release_notes.md
           prerelease: ${{ inputs.prerelease }}
           files: |
             release_files/*
+
+      - name: Update companion mod version catalog
+        if: inputs.include_mod && inputs.release_scope != 'apworld_only'
+        env:
+          MOD_SOURCE_REPOSITORY: ${{ steps.mod_settings.outputs.source_repository }}
+          CURRENT_REPOSITORY: ${{ github.repository }}
+          MOD_SOURCE_REF: ${{ steps.mod_settings.outputs.source_ref }}
+          MOD_PROJECT_PATH: ${{ steps.mod_settings.outputs.project_path }}
+          VERSION_CATALOG: ${{ steps.mod_settings.outputs.version_catalog }}
+          MOD_VERSION: ${{ steps.mod_build.outputs.version }}
+          CLIENT_VERSION: ${{ steps.mod_build.outputs.client_version }}
+          MINECRAFT_VERSION: ${{ steps.mod_build.outputs.minecraft }}
+          JAVA_VERSION: ${{ steps.mod_build.outputs.java }}
+          MOD_ASSET: ${{ steps.mod_build.outputs.asset_name }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if [ "$MOD_SOURCE_REPOSITORY" != "$CURRENT_REPOSITORY" ]; then
+            echo "::notice::The mod source is in $MOD_SOURCE_REPOSITORY, so its catalog was not pushed. Configure a token and a cross-repository catalog update if needed."
+            exit 0
+          fi
+
+          if [ -z "$VERSION_CATALOG" ]; then
+            echo "Version catalog update is disabled in .github/apworld-release-mod.json."
+            exit 0
+          fi
+
+          if ! git check-ref-format --branch "$MOD_SOURCE_REF" >/dev/null; then
+            echo "::error::A version catalog can only be pushed to a mod source branch, not a tag or raw commit."
+            exit 1
+          fi
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from urllib.parse import quote
+
+          workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
+          source_root = (workspace / ".mod-source").resolve()
+          project = (source_root / os.environ["MOD_PROJECT_PATH"]).resolve()
+          catalog = (project / os.environ["VERSION_CATALOG"]).resolve()
+          if project not in catalog.parents:
+              raise SystemExit("version_catalog must stay inside the configured mod project.")
+          if not catalog.is_file():
+              raise SystemExit(f"Configured version catalog not found: {catalog}")
+
+          entries = json.loads(catalog.read_text(encoding="utf-8"))
+          if not isinstance(entries, list):
+              raise SystemExit("The mod version catalog must contain a JSON array.")
+
+          channel = "beta" if os.environ["PRERELEASE"] == "true" else "release"
+          asset = os.environ["MOD_ASSET"]
+          tag = os.environ["RELEASE_TAG"]
+          repository = os.environ["RELEASE_REPOSITORY"]
+          url = (
+              f"https://github.com/{repository}/releases/download/"
+              f"{quote(tag, safe='')}/{quote(asset, safe='')}"
+          )
+          entry = {
+              "version": os.environ["MOD_VERSION"],
+              "channel": channel,
+              "data": int(os.environ["CLIENT_VERSION"]),
+              "java": int(os.environ["JAVA_VERSION"]),
+              "minecraft": os.environ["MINECRAFT_VERSION"],
+              "url": url,
+          }
+
+          entries = [
+              old for old in entries
+              if not (
+                  old.get("channel") == channel
+                  and old.get("data") == entry["data"]
+                  and old.get("version") == entry["version"]
+              )
+          ]
+          entries.insert(0, entry)
+          catalog.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
+          print(f"Updated catalog entry: {entry}")
+          PY
+
+          MOD_SOURCE_PATH=".mod-source/$MOD_PROJECT_PATH"
+          git -C "$MOD_SOURCE_PATH" config user.name "github-actions[bot]"
+          git -C "$MOD_SOURCE_PATH" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$MOD_SOURCE_PATH" add -- "$VERSION_CATALOG"
+
+          if git -C "$MOD_SOURCE_PATH" diff --cached --quiet; then
+            echo "Version catalog already contains this release."
+            exit 0
+          fi
+
+          git -C "$MOD_SOURCE_PATH" commit -m "Update Minecraft mod version catalog"
+          git -C .mod-source push origin "HEAD:refs/heads/$MOD_SOURCE_REF"
+
+      - name: Release summary
+        if: success()
+        env:
+          RELEASE_TITLE: ${{ steps.release_identity.outputs.title }}
+          RELEASE_TAG: ${{ steps.tag.outputs.tag }}
+          RELEASE_URL: https://github.com/${{ github.repository }}/releases/tag/${{ steps.tag.outputs.tag }}
+          WORLD: ${{ steps.world.outputs.world }}
+          WORLD_VERSION: ${{ steps.release_identity.outputs.world_version }}
+          INCLUDE_MOD: ${{ inputs.include_mod }}
+          RELEASE_SCOPE: ${{ inputs.release_scope }}
+          MOD_VERSION: ${{ steps.release_identity.outputs.mod_version }}
+          CLIENT_VERSION: ${{ steps.release_identity.outputs.client_version }}
+          MOD_SOURCE_REF: ${{ steps.mod_settings.outputs.source_ref }}
+        run: |
+          {
+            echo "## Release created"
+            echo
+            echo "- **Title:** $RELEASE_TITLE"
+            echo "- **Release:** [$RELEASE_TAG]($RELEASE_URL)"
+            echo "- **APWorld:** $WORLD v$WORLD_VERSION"
+            if [ "$INCLUDE_MOD" = "true" ]; then
+              echo "- **Mod:** v$MOD_VERSION (APMC $CLIENT_VERSION)"
+              echo "- **Update scope:** $RELEASE_SCOPE"
+              echo "- **Mod source:** $MOD_SOURCE_REF"
+            fi
+            echo "- **Assets:**"
+            for asset in release_files/*; do
+              [ -f "$asset" ] && echo "  - \`$(basename "$asset")\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
 
       ######################################################################
       # Failure diagnostics
