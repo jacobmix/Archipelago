@@ -1,6 +1,6 @@
 {
   "source_repository": "",
-  "source_ref": "codex/minecraft-mod-semver-test",
+  "source_ref": "minecraft-mod-semver",
   "project_path": ".",
   "java_version": "25",
   "version": "",
