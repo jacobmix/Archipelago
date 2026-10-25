@@ -2377,7 +2377,7 @@ jobs:
         with:
           repository: ${{ steps.mod_settings.outputs.source_repository }}
           ref: ${{ steps.mod_settings.outputs.source_ref }}
-          path: .mod-source
+          path: mod-source
           fetch-depth: 0
           persist-credentials: true
 
@@ -2410,7 +2410,7 @@ jobs:
           from pathlib import Path
 
           workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
-          source_root = (workspace / ".mod-source").resolve()
+          source_root = (workspace / "mod-source").resolve()
           project = (source_root / os.environ["MOD_PROJECT_PATH"]).resolve()
 
           if source_root not in project.parents and project != source_root:
@@ -3122,7 +3122,7 @@ jobs:
           from urllib.parse import quote
 
           workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
-          source_root = (workspace / ".mod-source").resolve()
+          source_root = (workspace / "mod-source").resolve()
           project = (source_root / os.environ["MOD_PROJECT_PATH"]).resolve()
           catalog = (project / os.environ["VERSION_CATALOG"]).resolve()
           if project not in catalog.parents:
@@ -3164,7 +3164,7 @@ jobs:
           print(f"Updated catalog entry: {entry}")
           PY
 
-          MOD_SOURCE_PATH=".mod-source/$MOD_PROJECT_PATH"
+          MOD_SOURCE_PATH="mod-source/$MOD_PROJECT_PATH"
           git -C "$MOD_SOURCE_PATH" config user.name "github-actions[bot]"
           git -C "$MOD_SOURCE_PATH" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C "$MOD_SOURCE_PATH" add -- "$VERSION_CATALOG"
@@ -3175,7 +3175,7 @@ jobs:
           fi
 
           git -C "$MOD_SOURCE_PATH" commit -m "Update Minecraft mod version catalog"
-          git -C .mod-source push origin "HEAD:refs/heads/$MOD_SOURCE_REF"
+          git -C mod-source push origin "HEAD:refs/heads/$MOD_SOURCE_REF"
 
       - name: Release summary
         if: success()
