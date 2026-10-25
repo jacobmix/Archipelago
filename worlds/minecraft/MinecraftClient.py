@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("MinecraftClient")
 
-version_file_endpoint = "https://raw.githubusercontent.com/jacobmix/Archipelago/refs/heads/codex/minecraft-mod-semver-test/versions/minecraft_versions.json"
+version_file_endpoint = "https://raw.githubusercontent.com/jacobmix/Archipelago/refs/heads/minecraft-mod-semver/versions/minecraft_versions.json"
 
 default_save_name = "Archipelago"
 
