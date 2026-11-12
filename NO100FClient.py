@@ -14,8 +14,19 @@ from worlds.no100f import NO100FContainer
 import dolphin_memory_engine
 
 import Utils
-from CommonClient import CommonContext, server_loop, gui_enabled, ClientCommandProcessor, logger, \
-    get_base_parser
+from CommonClient import server_loop, gui_enabled, logger, get_base_parser
+
+# Load Universal Tracker
+tracker_loaded = False
+try:
+    from worlds.tracker.TrackerClient import (
+        TrackerCommandProcessor as ClientCommandProcessor,
+        TrackerGameContext as CommonContext,
+        UT_VERSION,
+    )
+    tracker_loaded = True
+except ImportError:
+    from CommonClient import CommonContext, ClientCommandProcessor
 
 
 class CheckTypes(Flag):
@@ -8202,6 +8213,10 @@ class NO100FContext(CommonContext):
         await super().disconnect(allow_autoreconnect)
 
     def on_package(self, cmd: str, args: dict):
+        # Allow Universal Tracker to process server packets as well.
+        if tracker_loaded:
+            super().on_package(cmd, args)
+
         if cmd == 'Connected':
             self.current_scene_key = f"NO100F_current_scene_T{self.team}_P{self.slot}"
             self.set_notify(self.current_scene_key)
@@ -8242,6 +8257,10 @@ class NO100FContext(CommonContext):
         super().on_deathlink(data)
         _give_death(self)
 
+    def run_generator(self):
+        if tracker_loaded:
+            super().run_generator()
+
     async def server_auth(self, password_requested: bool = False):
         if password_requested and not self.password:
             logger.info('Enter the password required to join this game:')
@@ -8254,17 +8273,19 @@ class NO100FContext(CommonContext):
             return
         await self.send_connect()
 
-    def run_gui(self):
-        from kvui import GameManager
+    def make_gui(self):
+        # Let the parent context construct its GUI, then customize its title.
+        ui = super().make_gui()
+        ui.base_title = "Archipelago Scooby Doo: Night of 100 Frights Client"
 
-        class NO100FManager(GameManager):
-            logging_pairs = [
-                ("Client", "Archipelago")
-            ]
-            base_title = "Archipelago Scooby Doo: Night of 100 Frights Client"
+        if tracker_loaded:
+            ui.base_title += f" | Universal Tracker {UT_VERSION}"
 
-        self.ui = NO100FManager(self)
-        self.ui_task = asyncio.create_task(self.ui.async_run(), name="UI")
+        logging_pairs = list(getattr(ui, "logging_pairs", []))
+        if ("Client", "Archipelago") not in logging_pairs:
+            logging_pairs.append(("Client", "Archipelago"))
+        ui.logging_pairs = logging_pairs
+        return ui
 
 
 def _is_ptr_valid(ptr):
@@ -9950,6 +9971,11 @@ def main(connect=None, password=None, patch_file=None):
     async def _main(connect, password, patch_file):
         ctx = NO100FContext(connect, password)
         ctx.server_task = asyncio.create_task(server_loop(ctx), name="ServerLoop")
+
+        if tracker_loaded:
+            ctx.run_generator()
+            ctx.tags.discard("Tracker")
+
         if gui_enabled:
             ctx.run_gui()
         ctx.run_cli()

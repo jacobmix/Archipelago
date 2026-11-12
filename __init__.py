@@ -277,6 +277,14 @@ class NightOf100FrightsWorld(World):
     options: NO100FOptions
     topology_present = False
 
+    # this is how we tell the Universal Tracker we want to use re_gen_passthrough
+    @staticmethod
+    def interpret_slot_data(slot_data: typing.Dict[str, typing.Any]) -> typing.Dict[str, typing.Any]:
+        return slot_data
+
+    # and this is how we tell Universal Tracker we don't need the yaml
+    ut_can_gen_without_yaml = True
+
     item_name_to_id = {name: data.id for name, data in item_table.items()}
     location_name_to_id = location_table
     web = NO100FWeb()
@@ -284,6 +292,37 @@ class NightOf100FrightsWorld(World):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.snack_counter: int = 0
+
+    def generate_early(self) -> None:
+        """Implement .yaml-less Universal Tracker support."""
+        if not getattr(self.multiworld, "generation_is_fake", False):
+            return
+
+        re_gen_passthrough = getattr(self.multiworld, "re_gen_passthrough", {})
+        slot_data = re_gen_passthrough.get(self.game, {})
+        if not isinstance(slot_data, dict):
+            return
+
+        # Keep synchronized with fill_slot_data().
+        option_names = (
+            "death_link",
+            "include_monster_tokens",
+            "include_keys",
+            "include_warpgates",
+            "include_snacks",
+            "completion_goal",
+            "boss_count",
+            "token_count",
+            "snack_count",
+            "advanced_logic",
+            "expert_logic",
+            "creepy_early",
+            "speedster",
+        )
+
+        for option_name in option_names:
+            if option_name in slot_data:
+                getattr(self.options, option_name).value = slot_data[option_name]
 
     def get_items(self):
         # Generate item pool
