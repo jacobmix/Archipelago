@@ -7,6 +7,9 @@ from worlds.rayman2.Options import Rayman2Options
 
 REGEX = re.compile(r"\s*(\(|\)|&&|\|\||[A-Z_]+)")
 
+GLITCHES_ITEM_NAME = "Rayman 2 Glitches"
+
+
 class Parser:
     """Parses an expression of required tech into Python code to execute on the tech context."""
     def __init__(self, text):
@@ -123,34 +126,58 @@ class TechContext:
     purpleLumItem: str | None = None
     types: dict[str, bool] = field(default_factory=dict)
 
+    def is_glitch_enabled(self, option) -> bool:
+        """Return true for an enabled world trick or UT's virtual glitch item."""
+        return option.value == 1 or self.state.has(GLITCHES_ITEM_NAME, self.player)
+
     def determine_cachable_tech_type(self, tech: str) -> bool:
         """Determines if the collection state in this context has the given cachable tech types."""
         match tech:
             case "PURPLE_SWING":
                 return self.state.has("Silver Lum", self.player)
             case "DAMAGE_BOOST":
-                return self.options.glitched_damage_boosts.value == 1
+                return self.is_glitch_enabled(self.options.glitched_damage_boosts)
             case "BACKWARDS_SLIDE_JUMP":
                 # Backwards slide jumps requires hover to get into position!
-                return (self.options.movement_hover.value != 1 or self.state.has("Hover", self.player)) and self.options.glitched_backwards_slide_jumps.value == 1
+                return (
+                    self.options.movement_hover.value != 1 or self.state.has("Hover", self.player)
+                ) and self.is_glitch_enabled(self.options.glitched_backwards_slide_jumps)
             case "ELIXIR":
                 return self.state.has("Elixir of Life", self.player)
             case "COBD_SKIP":
-                return self.options.glitched_cobd_skip.value == 1
+                return self.is_glitch_enabled(self.options.glitched_cobd_skip)
             case "TECHNICAL":
-                return self.options.glitched_technical_tricks.value == 1
+                return self.is_glitch_enabled(self.options.glitched_technical_tricks)
+            case "EARLY_ECHOING_CAVES":
+                return self.is_glitch_enabled(self.options.glitched_early_echoing_caves)
+            case "REVERSE_EARLY_ECHOING_CAVES":
+                return self.is_glitch_enabled(self.options.glitched_reverse_early_echoing_caves)
             case "COMPLETED_COBD":
                 return self.state.has(self.cobdFinishEvent, self.player)
             case "LY_SKIP":
-                return (self.options.movement_hover.value != 1 or self.state.has("Hover", self.player)) and self.options.glitched_ly_skip.value == 1
+                return (
+                    self.options.movement_hover.value != 1 or self.state.has("Hover", self.player)
+                ) and self.is_glitch_enabled(self.options.glitched_ly_skip)
             case "KAPOUEH_SKIP":
-                return (self.options.movement_hover.value != 1 or self.state.has("Hover", self.player)) and (self.options.movement_ledge_grab.value != 1 or self.state.has("Ledge Grab", self.player)) and self.options.glitched_kapoueh_skip.value == 1
+                return (
+                    (self.options.movement_hover.value != 1 or self.state.has("Hover", self.player))
+                    and (self.options.movement_ledge_grab.value != 1 or self.state.has("Ledge Grab", self.player))
+                    and self.is_glitch_enabled(self.options.glitched_kapoueh_skip)
+                )
             case "AIRSWIM":
-                return (self.options.movement_swim.value != 1 or self.state.has("Swim", self.player)) and self.options.glitched_airswims.value == 1
+                return (
+                    self.options.movement_swim.value != 1 or self.state.has("Swim", self.player)
+                ) and self.is_glitch_enabled(self.options.glitched_airswims)
             case "TORNADO_SKIP":
-                return (self.options.movement_hover.value != 1 or self.state.has("Hover", self.player)) and (self.options.movement_ledge_grab.value != 1 or self.state.has("Ledge Grab", self.player)) and self.options.glitched_tornado_skip.value == 1
+                return (
+                    (self.options.movement_hover.value != 1 or self.state.has("Hover", self.player))
+                    and (self.options.movement_ledge_grab.value != 1 or self.state.has("Ledge Grab", self.player))
+                    and self.is_glitch_enabled(self.options.glitched_tornado_skip)
+                )
             case "JANO_SKIP_OOB":
-                return (self.options.movement_hover.value != 1 or self.state.has("Hover", self.player)) and self.options.glitched_jano_skip.value == 1
+                return (
+                    self.options.movement_hover.value != 1 or self.state.has("Hover", self.player)
+                ) and self.is_glitch_enabled(self.options.glitched_jano_skip)
             case "HOVER":
                 return (self.options.movement_hover.value != 1 or self.state.has("Hover", self.player))
             case "LEDGE_GRAB":
@@ -176,7 +203,7 @@ class TechContext:
                     return self.state.has(self.purpleLumItem, self.player)
             case "HAS_REENTERED_FROM_THAT_ONE_SPECIFIC_EXIT":
                 return self.state.has(self.sideTempleFinishEvent, self.player) or (
-                        self.options.glitched_plum_wall_climb.value == 1 and self.has_tech_type("HOVER") and (self.has_tech_type("TECHNICAL") or self.has_tech_type("PURPLE_SWING"))
+                        self.is_glitch_enabled(self.options.glitched_plum_wall_climb) and self.has_tech_type("HOVER") and (self.has_tech_type("TECHNICAL") or self.has_tech_type("PURPLE_SWING"))
                 )
         
         # Read all other types from the cache so we can re-use them!

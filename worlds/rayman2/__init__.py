@@ -1,6 +1,8 @@
 from dataclasses import dataclass
+import json
 from random import Random
 from typing import Any, Callable, TextIO, Tuple
+from importlib.resources import files
 
 from BaseClasses import CollectionState, Tutorial, ItemClassification, Item, Region, Location, Entrance
 from worlds.AutoWorld import WebWorld, World
@@ -8,7 +10,13 @@ from .Data import item_table, location_table, rayman_item_name_to_id, create_ray
 from .Generator import GeneratorState
 from .Layout import SubLevelInfo, Tech, LevelInfo, levels, extra_levels, rayman_location_hints, rayman_portal_ids
 from .Options import create_option_groups, Rayman2Options
-from .Tech import TechContext
+from .Tech import GLITCHES_ITEM_NAME, TechContext
+
+
+def get_world_version() -> tuple[int, ...]:
+    """Read the APWorld version from its package metadata."""
+    metadata = json.loads(files(__package__).joinpath("archipelago.json").read_text(encoding="utf-8"))
+    return tuple(int(part) for part in metadata.get("world_version", "0.0.0").split("."))
 
 
 class Rayman2Item(Item):
@@ -53,6 +61,11 @@ class Rayman2World(World):
     options_dataclass = Rayman2Options
     options: Rayman2Options
 
+    # Universal Tracker integration. Slot data is used to rebuild the exact
+    # generated room layout and the options which produced it.
+    ut_can_gen_without_yaml = True
+    glitches_item_name = GLITCHES_ITEM_NAME
+
     def __init__(self, multiworld, player):
         super(Rayman2World, self).__init__(multiworld, player)
         self.levelChains = {}
@@ -72,6 +85,39 @@ class Rayman2World(World):
         # in entrance requirements on lum gate portals. So we disable this setting!
         # It'd be complicated to work around so we eat the performance cost for R2.
         self.explicit_indirect_conditions = False
+
+    def generate_early(self) -> None:
+        """Restore the host's options and randomized layout for UT's fake generation."""
+        if not getattr(self.multiworld, "generation_is_fake", False):
+            return
+
+        passthrough = getattr(self.multiworld, "re_gen_passthrough", {})
+        slot_data = passthrough.get(self.game, {})
+        if not slot_data:
+            return
+
+        # Options that affect locations, access rules, or generated room layout
+        # are serialized by fill_slot_data. Use Option.from_any so Choice,
+        # Range, FreeText, and Toggle values are reconstructed consistently.
+        for option_name, value in slot_data.get("options", {}).items():
+            option = getattr(self.options, option_name, None)
+            if option is not None:
+                setattr(self.options, option_name, option.from_any(value))
+
+        # The room randomizer is intentionally not rerun under UT. Reuse the
+        # exact chain order and portal events selected by the host generation.
+        self.levelChains = {
+            chain_name: list(chain_rooms)
+            for chain_name, chain_rooms in slot_data.get("level_chains", {}).items()
+        }
+        self.portalEvents = {
+            int(portal): event
+            for portal, event in slot_data.get("portal_finish_events", {}).items()
+        }
+        self.sideTempleFinishEvent = slot_data.get(
+            "side_temple_finish_event", self.sideTempleFinishEvent
+        )
+        self.cobdFinishEvent = slot_data.get("cobd_finish_event", self.cobdFinishEvent)
 
     def can_obtain_lums(self, state: CollectionState, count):
         """Determines if [count] lums can be obtained using [state] based on the bundle lums list."""
@@ -277,6 +323,7 @@ class Rayman2World(World):
 
     def create_regions(self) -> None:
         """Creates all regions available in the game."""
+        is_ut = getattr(self.multiworld, "generation_is_fake", False)
         # Start by creating the menu
         menu = Region("Menu", self.player, self.multiworld)
         self.multiworld.regions.append(menu)
@@ -286,7 +333,7 @@ class Rayman2World(World):
         last_lum_gate = None
         for levelInfo in levels:
             levelChain = []
-            if levelInfo.chain is not None:
+            if levelInfo.chain is not None and not is_ut:
                 self.levelChains[levelInfo.chain] = levelChain
             firstRegion, lastRegion = self.create_level(levelInfo.sublevels, levelChain)
             if firstRegion is None or lastRegion is None:
@@ -332,7 +379,7 @@ class Rayman2World(World):
 
             # Create this level itself
             levelChain = []
-            if extraLevelInfo.chain is not None:
+            if extraLevelInfo.chain is not None and not is_ut:
                 self.levelChains[extraLevelInfo.chain] = levelChain
             firstRegion, lastRegion = self.create_level(extraLevelInfo.sublevels, levelChain)
             if firstRegion is None:
@@ -460,6 +507,7 @@ class Rayman2World(World):
 
     def connect_levels(self):
         """Connects together regions based on the level chains set."""
+        is_ut = getattr(self.multiworld, "generation_is_fake", False)
         # Create a mapping of all sub levels and their info
         subLevelsById = {}
         allLevels: list[LevelInfo] = []
@@ -511,12 +559,27 @@ class Rayman2World(World):
                     exit.connect(region)
 
                 # Create connections for EEC and reverse EEC
-                if subLevelName == "learn_31" and self.options.glitched_early_echoing_caves.value:
-                    exit = self.create_entrance_portal(region, "EEC")
+                if subLevelName == "learn_31" and (
+                    self.options.glitched_early_echoing_caves.value or is_ut
+                ):
+                    eec_tech = Tech("EARLY_ECHOING_CAVES")
+                    exit = self.create_entrance_portal(
+                        region,
+                        "EEC",
+                        extra_rule=lambda state, tech=eec_tech: TechContext(
+                            self.player, state, self.options, self.sideTempleFinishEvent,
+                            self.cobdFinishEvent
+                        ).has_tech(tech),
+                    )
                     exit.connect(self.get_region("Learn_32"))
 
-                if subLevelName == "Learn_32" and self.options.glitched_reverse_early_echoing_caves.value:
-                    tech = Tech("HOVER && PURPLE_SWING", "Fairy Glade Revisit Swing")
+                if subLevelName == "Learn_32" and (
+                    self.options.glitched_reverse_early_echoing_caves.value or is_ut
+                ):
+                    tech = Tech(
+                        "REVERSE_EARLY_ECHOING_CAVES && HOVER && PURPLE_SWING",
+                        "Fairy Glade Revisit Swing",
+                    )
                     exit = self.create_entrance_portal(region, "Reverse EEC",
                                                        extra_rule=lambda state, tech=tech: TechContext(self.player,
                                                                                                        state,
@@ -575,8 +638,10 @@ class Rayman2World(World):
 
     def connect_entrances(self) -> None:
         """Connect entrances of any disconnected regions in room randomisation mode."""
-        # If we're in UT we don't re-randomize!
-        if getattr(self.multiworld, "generation_is_fake", False):
+        # UT receives the actual generated room chains in slot data. Connect
+        # those chains, but never run the custom room randomizer a second time.
+         if getattr(self.multiworld, "generation_is_fake", False):
+            self.connect_levels(
             return
 
         # If we're in room randomisation mode, generate the layout!
@@ -622,6 +687,8 @@ class Rayman2World(World):
     def create_item(self, item: str,
                     classification: ItemClassification = ItemClassification.progression) -> Rayman2Item:
         """Creates a new Rayman 2 item using the item id table."""
+        if item == self.glitches_item_name:
+            return Rayman2Item(item, ItemClassification.progression, None, self.player)
         return Rayman2Item(item, classification, self.item_name_to_id[item], self.player)
 
     def create_items(self):
@@ -681,14 +748,10 @@ class Rayman2World(World):
 
         self.multiworld.itempool += itempool
 
-    def interpret_slot_data(self, slot_data: dict[str, Any]) -> None:
-        """Hook method used by Universal Tracker to load data from slot data back into Python so the game layout is consistent."""
-        self.levelChains = slot_data["level_chains"]
-        for (key, value) in slot_data["portal_finish_events"].items():
-            self.portalEvents[int(key)] = value
-        self.sideTempleFinishEvent = slot_data["side_temple_finish_event"]
-        self.cobdFinishEvent = slot_data["cobd_finish_event"]
-        self.connect_levels()
+    @staticmethod
+    def interpret_slot_data(slot_data: dict[str, Any]) -> dict[str, Any]:
+        """Ask UT to regenerate using the original slot data as passthrough."""
+        return slot_data
 
     def get_filler_item_name(self) -> str:
         """There cannot be filler items!"""
@@ -696,7 +759,7 @@ class Rayman2World(World):
 
     def fill_slot_data(self):
         """Includes all information needed by the game into the slot data."""
-        return {
+        slot_data = {
             "level_chains": self.levelChains,
             "lum_gates": [
                 self.options.first_gate_required.value,
@@ -726,6 +789,49 @@ class Rayman2World(World):
             "portal_finish_events": self.portalEvents,
             "side_temple_finish_event": self.sideTempleFinishEvent,
             "cobd_finish_event": self.cobdFinishEvent,
+
+        # Store every game option that can affect generated locations, logic,
+        # room order, or in-game behavior. UT starts without the player's YAML.
+        slot_data["options"] = self.options.as_dict(
+            "end_goal",
+            "death_link",
+            "death_link_amnesty",
+            "damage_link",
+            "room_randomisation",
+            "room_randomisation_seed",
+            "restrictive_room_randomisation",
+            "lum_bundle_size",
+            "lumsanity",
+            "fragmented_silver_lums",
+            "instant_portal_access",
+            "unlock_level_checks",
+            "fixed_level_lengths",
+            "improved_portal_teleporting",
+            "movement_hover",
+            "movement_ledge_grab",
+            "movement_swim",
+            "movement_lava_hover",
+            "glitched_early_echoing_caves",
+            "glitched_technical_tricks",
+            "glitched_jano_skip",
+            "glitched_tornado_skip",
+            "glitched_plum_wall_climb",
+            "glitched_damage_boosts",
+            "glitched_backwards_slide_jumps",
+            "glitched_airswims",
+            "glitched_cobd_skip",
+            "glitched_kapoueh_skip",
+            "glitched_reverse_early_echoing_caves",
+            "glitched_ly_skip",
+            "first_gate_required",
+            "second_gate_required",
+            "third_gate_required",
+            "fourth_gate_required",
+            "walk_of_life_required",
+            "walk_of_power_required",
+        )
+        slot_data["world_version"] = list(get_world_version())
+        return slot_data
         }
 
     def write_spoiler(self, spoiler_handle: TextIO) -> None:
