@@ -640,8 +640,8 @@ class Rayman2World(World):
         """Connect entrances of any disconnected regions in room randomisation mode."""
         # UT receives the actual generated room chains in slot data. Connect
         # those chains, but never run the custom room randomizer a second time.
-         if getattr(self.multiworld, "generation_is_fake", False):
-            self.connect_levels(
+        if getattr(self.multiworld, "generation_is_fake", False):
+            self.connect_levels()
             return
 
         # If we're in room randomisation mode, generate the layout!
@@ -789,6 +789,7 @@ class Rayman2World(World):
             "portal_finish_events": self.portalEvents,
             "side_temple_finish_event": self.sideTempleFinishEvent,
             "cobd_finish_event": self.cobdFinishEvent,
+        }
 
         # Store every game option that can affect generated locations, logic,
         # room order, or in-game behavior. UT starts without the player's YAML.
@@ -832,7 +833,6 @@ class Rayman2World(World):
         )
         slot_data["world_version"] = list(get_world_version())
         return slot_data
-        }
 
     def write_spoiler(self, spoiler_handle: TextIO) -> None:
         """Includes decided level swaps in the spoiler file for debugging."""
