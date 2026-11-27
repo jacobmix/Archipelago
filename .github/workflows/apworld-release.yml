@@ -51,7 +51,7 @@ on:
         description: |
           AP environment: latest (newest stable), main (upstream), local (branch):
         type: choice
-        default: "latest"
+        default: "local"
         options:
           - "latest"
           - "main"
@@ -61,7 +61,7 @@ on:
         description: |
           Apworld path, opt. followed by ':Name' (e.g., .:apquest or worlds/apquest) If no name is provided, the branch name is used. (blank = .:<branch> or worlds/<branch>:<branch>):
         required: false
-        default: ""
+        default: "worlds/rayman2:rayman2"
 
       flags:
         description: |
@@ -121,12 +121,12 @@ on:
         description: |
           Run a multiworld generation test using APWorld and APQuest.
         type: boolean
-        default: false
+        default: true
 
       fuzzer_preset:
         description: Fuzzer preset (presets are defined in the workflow)
         type: choice
-        default: "None"
+        default: "All at 100"
         options:
           - "None"
           - "Smoke"
@@ -157,7 +157,7 @@ on:
         description: |
           Run the Archipelago unit tests before releasing.
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write
